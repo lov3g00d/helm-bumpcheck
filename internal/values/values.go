@@ -24,12 +24,20 @@ type Change struct {
 	New  any    `json:"new"`
 }
 
+type TypeChange struct {
+	Path string   `json:"path"`
+	Old  string   `json:"old"`
+	New  string   `json:"new"`
+	Keys []string `json:"keys"`
+}
+
 type Report struct {
-	Removed        []string `json:"removed"`
-	Freeform       []string `json:"freeform"`
-	Undeclared     []string `json:"undeclared"`
-	DefaultChanged []Change `json:"defaultChanged"`
-	Added          []string `json:"added"`
+	Removed        []string     `json:"removed"`
+	TypeChanged    []TypeChange `json:"typeChanged"`
+	Freeform       []string     `json:"freeform"`
+	Undeclared     []string     `json:"undeclared"`
+	DefaultChanged []Change     `json:"defaultChanged"`
+	Added          []string     `json:"added"`
 }
 
 func Parse(data []byte) (map[string]any, error) {
@@ -122,8 +130,17 @@ func freeformAncestor(l Leaves, segments []string) bool {
 func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 	oldL, newL, userL := Flatten(oldDefaults), Flatten(newDefaults), Flatten(user)
 	var r Report
+	typed := map[string]*TypeChange{}
 
 	for p, leaf := range userL {
+		if at, oldKind, newKind, ok := typeChange(oldDefaults, newDefaults, leaf.Segments); ok {
+			path := Path(at)
+			if typed[path] == nil {
+				typed[path] = &TypeChange{Path: path, Old: oldKind, New: newKind}
+			}
+			typed[path].Keys = append(typed[path].Keys, p)
+			continue
+		}
 		_, inOld := oldL[p]
 		_, inNew := newL[p]
 		switch {
@@ -166,10 +183,60 @@ func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 		}
 	}
 
+	for _, tc := range typed {
+		sort.Strings(tc.Keys)
+		r.TypeChanged = append(r.TypeChanged, *tc)
+	}
+	sort.Slice(r.TypeChanged, func(i, j int) bool { return r.TypeChanged[i].Path < r.TypeChanged[j].Path })
 	sort.Strings(r.Removed)
 	sort.Strings(r.Freeform)
 	sort.Strings(r.Undeclared)
 	sort.Strings(r.Added)
 	sort.Slice(r.DefaultChanged, func(i, j int) bool { return r.DefaultChanged[i].Path < r.DefaultChanged[j].Path })
 	return r
+}
+
+func kind(v any) string {
+	switch v.(type) {
+	case nil:
+		return ""
+	case map[string]any:
+		return "map"
+	case []any:
+		return "list"
+	default:
+		return "scalar"
+	}
+}
+
+func lookup(m map[string]any, segments []string) (any, bool) {
+	var cur any = m
+	for _, s := range segments {
+		node, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if cur, ok = node[s]; !ok {
+			return nil, false
+		}
+	}
+	return cur, true
+}
+
+func typeChange(oldDefaults, newDefaults map[string]any, segments []string) ([]string, string, string, bool) {
+	for i := 1; i <= len(segments); i++ {
+		o, inOld := lookup(oldDefaults, segments[:i])
+		n, inNew := lookup(newDefaults, segments[:i])
+		if !inOld || !inNew {
+			return nil, "", "", false
+		}
+		oldKind, newKind := kind(o), kind(n)
+		if oldKind == "" || newKind == "" {
+			return nil, "", "", false
+		}
+		if oldKind != newKind {
+			return segments[:i], oldKind, newKind, true
+		}
+	}
+	return nil, "", "", false
 }

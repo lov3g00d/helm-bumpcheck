@@ -15,7 +15,7 @@ import (
 
 func checkNotes(ctx context.Context, chart string, o options, fromApp, toApp string, r values.Report) (*report.Notes, error) {
 	res := &report.Notes{Repo: o.appRepo, From: fromApp, To: toApp, Threshold: o.threshold}
-	keys := slices.Concat(r.Removed, r.Freeform, r.Undeclared)
+	keys := slices.Concat(r.Removed, typedKeys(r.TypeChanged), r.Freeform, r.Undeclared)
 
 	switch {
 	case fromApp == "" || toApp == "":
@@ -58,4 +58,12 @@ func skipOnError(ctx context.Context, res *report.Notes, err error) (*report.Not
 	}
 	res.Skipped = err.Error()
 	return res, nil
+}
+
+func typedKeys(tcs []values.TypeChange) []string {
+	var out []string
+	for _, tc := range tcs {
+		out = append(out, tc.Keys...)
+	}
+	return out
 }

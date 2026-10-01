@@ -125,3 +125,78 @@ func TestCompareFreeformOnlyInNewChart(t *testing.T) {
 		t.Errorf("Undeclared = %v, want none", got.Undeclared)
 	}
 }
+
+func TestCompareTypeChanges(t *testing.T) {
+	oldDefaults := mustParse(t, `
+configuration:
+  provider:
+  backupStorageLocation:
+    name:
+    bucket:
+    config: {}
+  volumeSnapshotLocation:
+    name:
+    config: {}
+  logLevel: info
+tolerations: []
+port: "8080"
+`)
+	newDefaults := mustParse(t, `
+configuration:
+  backupStorageLocation:
+    - name:
+      bucket:
+      config: {}
+  volumeSnapshotLocation:
+    - name:
+      config: {}
+  logLevel: info
+tolerations: {}
+port: 8080
+`)
+	user := mustParse(t, `
+configuration:
+  provider: gcp
+  backupStorageLocation:
+    name: default
+    bucket: backups
+  volumeSnapshotLocation:
+    provider: openebs
+    name: default
+    config:
+      bucket: snaps
+      prefix: cstor
+  logLevel: debug
+tolerations: []
+port: "9090"
+`)
+	got := Compare(oldDefaults, newDefaults, user)
+
+	want := []TypeChange{
+		{Path: "configuration.backupStorageLocation", Old: "map", New: "list", Keys: []string{
+			"configuration.backupStorageLocation.bucket", "configuration.backupStorageLocation.name"}},
+		{Path: "configuration.volumeSnapshotLocation", Old: "map", New: "list", Keys: []string{
+			"configuration.volumeSnapshotLocation.config.bucket", "configuration.volumeSnapshotLocation.config.prefix",
+			"configuration.volumeSnapshotLocation.name", "configuration.volumeSnapshotLocation.provider"}},
+		{Path: "tolerations", Old: "list", New: "map", Keys: []string{"tolerations"}},
+	}
+	if !reflect.DeepEqual(got.TypeChanged, want) {
+		t.Errorf("TypeChanged =\n%#v\nwant\n%#v", got.TypeChanged, want)
+	}
+	if !reflect.DeepEqual(got.Removed, []string{"configuration.provider"}) {
+		t.Errorf("Removed = %v, want only configuration.provider", got.Removed)
+	}
+	if len(got.Undeclared) != 0 || len(got.Freeform) != 0 {
+		t.Errorf("Undeclared %v Freeform %v, want none", got.Undeclared, got.Freeform)
+	}
+}
+
+func TestTypeChangeIgnoresNilAndMissing(t *testing.T) {
+	oldDefaults := mustParse(t, "a:\n  b:\nc: 1\n")
+	newDefaults := mustParse(t, "a:\n  b: [1]\n")
+	for _, segs := range [][]string{{"a", "b"}, {"c"}, {"x", "y"}} {
+		if _, _, _, ok := typeChange(oldDefaults, newDefaults, segs); ok {
+			t.Errorf("typeChange(%v) reported a change", segs)
+		}
+	}
+}

@@ -30,12 +30,18 @@ func WriteText(w io.Writer, res Report) error {
 		changed[i] = describeChange(c)
 	}
 
+	typed := make([]string, len(r.TypeChanged))
+	for i, tc := range r.TypeChanged {
+		typed[i] = fmt.Sprintf("%s: %s -> %s (%d %s you set)", tc.Path, tc.Old, tc.New, len(tc.Keys), plural(len(tc.Keys), "key", "keys"))
+	}
+
 	section(&b, "Removed", "keys you set that the new chart no longer declares", r.Removed)
+	section(&b, "Type changed", "blocks you set whose type changed in the new chart", typed)
 	section(&b, "Default changed", "keys you rely on whose default changed", changed)
 	section(&b, "Free-form", "keys inside open blocks, not checked against the chart", r.Freeform)
 	section(&b, "Undeclared", "keys the chart never declared", r.Undeclared)
 
-	if len(r.Removed)+len(changed)+len(r.Freeform)+len(r.Undeclared) == 0 {
+	if len(r.Removed)+len(typed)+len(changed)+len(r.Freeform)+len(r.Undeclared) == 0 {
 		b.WriteString("\nNo changes affect the values you set.\n")
 	}
 	if len(r.Added) > 0 {
@@ -113,4 +119,11 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n-3]) + "..."
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
