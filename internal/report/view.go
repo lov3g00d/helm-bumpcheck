@@ -93,6 +93,9 @@ func title(res Report) string {
 	default:
 		t += fmt.Sprintf(" (app %s -> %s)", res.AppFrom, res.AppTo)
 	}
+	if res.Values != "" {
+		t += fmt.Sprintf(" [%s]", res.Values)
+	}
 	return t
 }
 

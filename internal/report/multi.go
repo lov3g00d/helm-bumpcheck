@@ -1,0 +1,106 @@
+package report
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+)
+
+type Batch struct {
+	Base    string   `json:"base"`
+	Head    string   `json:"head"`
+	Reports []Report `json:"reports"`
+	Skipped []Skip   `json:"skipped"`
+}
+
+func WriteBatch(w io.Writer, format string, b Batch) error {
+	switch format {
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(b)
+	case "markdown":
+		return writeBatchMarkdown(w, b)
+	default:
+		return writeBatchText(w, b)
+	}
+}
+
+func batchSummary(b Batch) string {
+	if len(b.Reports) == 0 {
+		return fmt.Sprintf("No chart versions changed between %s and %s.", short(b.Base), short(b.Head))
+	}
+	return fmt.Sprintf("%d %s checked between %s and %s.", len(b.Reports), plural(len(b.Reports), "report", "reports"), short(b.Base), short(b.Head))
+}
+
+func writeBatchText(w io.Writer, b Batch) error {
+	if _, err := fmt.Fprintln(w, batchSummary(b)); err != nil {
+		return err
+	}
+	for _, r := range b.Reports {
+		if _, err := io.WriteString(w, "\n"); err != nil {
+			return err
+		}
+		if err := WriteText(w, r); err != nil {
+			return err
+		}
+	}
+	if len(b.Skipped) == 0 {
+		return nil
+	}
+	var sb strings.Builder
+	sb.WriteString("\nSkipped\n")
+	for _, s := range b.Skipped {
+		fmt.Fprintf(&sb, "  %s: %s\n", s.Path, s.Reason)
+	}
+	_, err := io.WriteString(w, sb.String())
+	return err
+}
+
+func writeBatchMarkdown(w io.Writer, b Batch) error {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "## helm bumpcheck\n\n%s\n", mdText(batchSummary(b)))
+	if len(b.Reports) > 0 {
+		sb.WriteString("\n| Chart | Values | Result |\n|---|---|---|\n")
+		for _, r := range b.Reports {
+			v := build(r)
+			fmt.Fprintf(&sb, "| %s %s -&gt; %s | %s | %s |\n", mdCode(r.Chart), r.From, r.To, mdCode(r.Values), strings.TrimPrefix(v.Verdict, "Result: "))
+		}
+	}
+
+	details := true
+	for {
+		var body strings.Builder
+		for _, r := range b.Reports {
+			body.WriteString("\n---\n\n")
+			body.WriteString(markdown(build(r), details))
+		}
+		if len(b.Skipped) > 0 {
+			body.WriteString("\n<details><summary>Skipped</summary>\n\n")
+			for _, s := range b.Skipped {
+				fmt.Fprintf(&body, "- %s: %s\n", mdCode(s.Path), mdText(s.Reason))
+			}
+			body.WriteString("\n</details>\n")
+		}
+		if sb.Len()+body.Len() <= maxMarkdownLen || !details {
+			sb.WriteString(body.String())
+			break
+		}
+		details = false
+	}
+
+	out := sb.String()
+	if len(out) > maxMarkdownLen {
+		out = out[:maxMarkdownLen] + "\n\n_Report truncated. Use -o json for the full result._\n"
+	}
+	_, err := io.WriteString(w, out)
+	return err
+}
+
+func short(rev string) string {
+	if len(rev) == 40 {
+		return rev[:12]
+	}
+	return rev
+}

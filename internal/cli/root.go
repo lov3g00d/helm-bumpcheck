@@ -55,17 +55,21 @@ func NewRootCmd() *cobra.Command {
 	f.StringVar(&o.from, "from", "", "chart version you run now")
 	f.StringVar(&o.to, "to", "", "chart version you upgrade to")
 	f.StringSliceVarP(&o.valueFiles, "values", "f", nil, "values file, repeatable, later files win")
-	f.StringVarP(&o.output, "output", "o", "text", "output format: text, json or markdown")
 	f.StringVar(&o.appRepo, "app-repo", "", "GitHub owner/name of the app the chart ships, to check its release notes")
-	f.StringVar(&o.appTagPrefix, "app-tag-prefix", "", "prefix before the version in the app's release tags")
 	f.StringVar(&o.chartNotes, "chart-notes", "", "GitHub owner/name where the chart publishes its own releases, to check them")
-	f.StringVar(&o.chartTagPrefix, "chart-tag-prefix", "", "prefix before the version in the chart's release tags (default CHART-)")
-	f.IntVar(&o.maxPages, "max-pages", 40, "maximum pages of 100 GitHub releases to read per repo")
-	f.Float64Var(&o.threshold, "threshold", 0.5, "minimum probability for a release-note match to be shown")
-	f.StringSliceVar(&o.failOn, "fail-on", nil, "exit with code 2 if the report has any of: "+strings.Join(report.FailKinds, ", "))
-	f.BoolVar(&o.render, "render", true, "render both chart versions with your values and report if only the new one fails")
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("to")
+
+	p := cmd.PersistentFlags()
+	p.StringVarP(&o.output, "output", "o", "text", "output format: text, json or markdown")
+	p.StringVar(&o.appTagPrefix, "app-tag-prefix", "", "prefix before the version in the app's release tags")
+	p.StringVar(&o.chartTagPrefix, "chart-tag-prefix", "", "prefix before the version in the chart's release tags (default CHART-)")
+	p.IntVar(&o.maxPages, "max-pages", 40, "maximum pages of 100 GitHub releases to read per repo")
+	p.Float64Var(&o.threshold, "threshold", 0.5, "minimum probability for a release-note match to be shown")
+	p.StringSliceVar(&o.failOn, "fail-on", nil, "exit with code 2 if the report has any of: "+strings.Join(report.FailKinds, ", "))
+	p.BoolVar(&o.render, "render", true, "render both chart versions with your values and report if only the new one fails")
+
+	cmd.AddCommand(newDiffCmd(&o))
 	return cmd
 }
 

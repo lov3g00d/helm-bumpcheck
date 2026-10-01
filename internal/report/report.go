@@ -11,9 +11,16 @@ type Report struct {
 	To      string `json:"to"`
 	AppFrom string `json:"appFrom,omitempty"`
 	AppTo   string `json:"appTo,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Values  string `json:"values,omitempty"`
 	values.Report
 	Render *Render  `json:"render,omitempty"`
 	Notes  []*Notes `json:"notes,omitempty"`
+}
+
+type Skip struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
 }
 
 type Render struct {
