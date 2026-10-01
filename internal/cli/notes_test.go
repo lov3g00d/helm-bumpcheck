@@ -1,0 +1,160 @@
+package cli
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/lov3g00d/helm-values-impact/internal/jev"
+)
+
+func fakeAPIs(t *testing.T) {
+	t.Helper()
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/app/releases" {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"tag_name": "v2.0.0", "body": "## Breaking Changes\n- Removed legacy mode\n\n## Features\n- Faster startup"},
+			{"tag_name": "v1.5.0", "body": "## Features\n- Team dashboards"},
+			{"tag_name": "v1.0.0", "body": "## Features\n- Initial release"},
+		})
+	}))
+	t.Cleanup(gh.Close)
+
+	jv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			State     map[string]string `json:"state"`
+			Questions map[string]struct {
+				Instructions map[string]string `json:"instructions"`
+			} `json:"questions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode jev request: %v", err)
+		}
+		resp := jev.Response{Answers: map[string]jev.Answer{}, Usage: jev.Usage{InputTokens: 50}}
+		for id, q := range req.Questions {
+			p := 0.02
+			if strings.Contains(req.State["entry"], "legacy") && strings.Contains(q.Instructions["config_key"], "legacy") {
+				p = 0.93
+			}
+			resp.Answers[id] = jev.Answer{Type: "noul", Noul: p}
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(jv.Close)
+
+	t.Setenv("GITHUB_API_URL", gh.URL)
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv(jev.BaseURLEnv, jv.URL)
+	t.Setenv(jev.APIKeyEnv, "test-key")
+}
+
+func TestNotesTextOutput(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"Release notes: acme/app 1.0.0 -> 2.0.0 (2 releases, 3 entries, 3 questions)",
+		"  0.93  legacy.enabled",
+		"        v2.0.0 Breaking Changes: Removed legacy mode",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "0.02") {
+		t.Errorf("below-threshold match shown:\n%s", out)
+	}
+}
+
+func TestNotesJSONKeepsAllMatches(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app", "-o", "json")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	var res struct {
+		Removed []string    `json:"removed"`
+		Notes   notesResult `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if len(res.Removed) != 1 {
+		t.Errorf("removed = %v", res.Removed)
+	}
+	if n := res.Notes; n.Releases != 2 || len(n.Matches) != 3 || n.Matches[0].Key != "legacy.enabled" || n.Stats.InputTokens != 100 {
+		t.Errorf("notes = %+v", n)
+	}
+}
+
+func TestNotesSkippedWithoutKey(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	t.Setenv(jev.APIKeyEnv, "")
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Release notes: skipped, TYPESAFE_API_KEY is not set") {
+		t.Errorf("output:\n%s", out)
+	}
+	if !strings.Contains(out, "Removed (1)") {
+		t.Errorf("diff missing when notes are skipped:\n%s", out)
+	}
+}
+
+func TestNotesSkippedWhenAppVersionUnchanged(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "1.0.0", "-f", userValues, "--app-repo", "acme/app")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Release notes: skipped, appVersion did not change") {
+		t.Errorf("output:\n%s", out)
+	}
+}
+
+func TestRejectsBadThreshold(t *testing.T) {
+	setup(t)
+	_, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "--threshold", "1.5")
+	if err == nil || !strings.Contains(err.Error(), "threshold") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDescribeMultilineChange(t *testing.T) {
+	got := describeChange(valuesChange("config", "a: 1\nb: 2\nc: 3", "a: 1\nb: 5\nc: 3"))
+	if want := `config: line 2: "b: 2" -> "b: 5"`; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	got = describeChange(valuesChange("config", "a: 1\n", "a: 1\nextra: true\n"))
+	if want := `config: line 2: "" -> "extra: true"`; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestNotesSkippedOnGitHubError(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/missing")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Release notes: skipped, github releases acme/missing page 1: 404 Not Found") {
+		t.Errorf("output:\n%s", out)
+	}
+	if !strings.Contains(out, "Removed (1)") {
+		t.Errorf("diff lost on GitHub error:\n%s", out)
+	}
+}

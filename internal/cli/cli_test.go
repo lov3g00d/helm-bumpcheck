@@ -1,0 +1,157 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/lov3g00d/helm-values-impact/internal/values"
+)
+
+const fakeHelmScript = `#!/bin/sh
+case "$*" in
+  "show chart "*"--version 1.0.0"*)
+    printf 'name: mychart\nversion: 1.0.0\nappVersion: "1.0.0"\n'
+    ;;
+  "show chart "*"--version 2.0.0"*)
+    printf 'name: mychart\nversion: 2.0.0\nappVersion: "2.0.0"\n'
+    ;;
+  *"--version 1.0.0"*)
+    printf 'replicas: 1\nport: 3100\nlegacy:\n  enabled: false\npodAnnotations: {}\n'
+    ;;
+  *"--version 2.0.0"*)
+    printf 'replicas: 1\nport: 3200\npodAnnotations: {}\nnewThing: true\n'
+    ;;
+  *)
+    echo "Error: chart version not found" >&2
+    exit 1
+    ;;
+esac
+`
+
+func setup(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "helm")
+	if err := os.WriteFile(bin, []byte(fakeHelmScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HELM_BIN", bin)
+
+	userValues := filepath.Join(dir, "values.yaml")
+	data := "legacy:\n  enabled: true\npodAnnotations:\n  team: tracing\n"
+	if err := os.WriteFile(userValues, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return userValues
+}
+
+func execute(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	cmd := NewRootCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return out.String(), err
+}
+
+func TestTextOutput(t *testing.T) {
+	userValues := setup(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues)
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"mychart 1.0.0 -> 2.0.0",
+		"Removed (1)",
+		"  legacy.enabled",
+		"Default changed (1)",
+		"  port: 3100 -> 3200",
+		"Free-form (1)",
+		"  podAnnotations.team",
+		"1 new keys in the target version.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestJSONOutput(t *testing.T) {
+	userValues := setup(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "-o", "json")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	var r values.Report
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if len(r.Removed) != 1 || r.Removed[0] != "legacy.enabled" {
+		t.Errorf("removed = %v", r.Removed)
+	}
+	if len(r.DefaultChanged) != 1 || r.DefaultChanged[0].Path != "port" {
+		t.Errorf("defaultChanged = %v", r.DefaultChanged)
+	}
+}
+
+func TestNothingAffected(t *testing.T) {
+	setup(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "1.0.0")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "No changes affect the values you set.") {
+		t.Errorf("output:\n%s", out)
+	}
+}
+
+func TestHelmErrorPropagates(t *testing.T) {
+	setup(t)
+	_, err := execute(t, "mychart", "--from", "1.0.0", "--to", "9.9.9")
+	if err == nil || !strings.Contains(err.Error(), "chart version not found") {
+		t.Errorf("err = %v, want helm stderr", err)
+	}
+}
+
+func TestRejectsUnknownOutput(t *testing.T) {
+	setup(t)
+	_, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-o", "yaml")
+	if err == nil || !strings.Contains(err.Error(), "unknown output format") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestRequiresFromAndTo(t *testing.T) {
+	setup(t)
+	if _, err := execute(t, "mychart", "--from", "1.0.0"); err == nil {
+		t.Error("expected error without --to")
+	}
+}
+
+func TestRequiresChart(t *testing.T) {
+	setup(t)
+	if _, err := execute(t, "--from", "1.0.0", "--to", "2.0.0"); err == nil {
+		t.Error("expected error without CHART")
+	}
+}
+
+func TestRenderTruncatesByRune(t *testing.T) {
+	long := strings.Repeat("ж", 100)
+	got := render(long)
+	if n := len([]rune(got)); n != maxValueLen {
+		t.Errorf("rendered %d runes, want %d", n, maxValueLen)
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Errorf("rendered %q, want ... suffix", got)
+	}
+}
+
+func valuesChange(path string, old, new any) values.Change {
+	return values.Change{Path: path, Old: old, New: new}
+}

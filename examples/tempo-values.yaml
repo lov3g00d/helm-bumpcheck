@@ -1,0 +1,17 @@
+replicas: 1
+tempo:
+  retention: 72h
+  storage:
+    trace:
+      backend: s3
+  podAnnotations:
+    prometheus.io/scrape: "true"
+  overrides:
+    max_traces_per_user: 50000
+  metricsGenerator:
+    enabled: true
+    processor:
+      local_blocks:
+        flush_to_storage: true
+persistence:
+  enabled: true

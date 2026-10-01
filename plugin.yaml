@@ -1,0 +1,7 @@
+name: values-impact
+version: 0.1.0
+usage: Show how a chart upgrade affects the values you set
+description: Compare chart default values between two versions against your values files
+ignoreFlags: false
+platformCommand:
+  - command: ${HELM_PLUGIN_DIR}/bin/helm-values-impact

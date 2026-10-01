@@ -1,0 +1,49 @@
+version: '3'
+
+vars:
+  BINARY: bin/helm-values-impact
+
+tasks:
+  default:
+    cmds:
+      - task: test
+
+  build:
+    desc: Build the plugin binary
+    sources:
+      - '**/*.go'
+      - go.mod
+      - go.sum
+    generates:
+      - '{{.BINARY}}'
+    cmds:
+      - go build -o {{.BINARY}} .
+
+  test:
+    desc: Run unit tests with the race detector
+    cmds:
+      - go test -race ./...
+
+  lint:
+    desc: Check formatting and run go vet
+    cmds:
+      - test -z "$(gofmt -l .)"
+      - go vet ./...
+
+  install:
+    desc: Install as a Helm plugin from this directory
+    deps: [build]
+    cmds:
+      - helm plugin install .
+
+  uninstall:
+    desc: Remove the Helm plugin
+    cmds:
+      - helm plugin uninstall values-impact
+
+  test:live:
+    desc: Run tests that call real APIs (GitHub, and Jev when TYPESAFE_API_KEY is set)
+    env:
+      LIVE: '1'
+    cmds:
+      - go test -run 'TestLive' -v ./...
