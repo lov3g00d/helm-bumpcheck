@@ -35,6 +35,12 @@ type options struct {
 
 var ErrFindings = errors.New("report has findings")
 
+var writers = map[string]func(io.Writer, report.Report) error{
+	"text":     report.WriteText,
+	"json":     report.WriteJSON,
+	"markdown": report.WriteMarkdown,
+}
+
 type chartInfo struct {
 	defaults  map[string]any
 	meta      helm.Metadata
@@ -66,7 +72,7 @@ func NewRootCmd() *cobra.Command {
 	f.StringVar(&o.from, "from", "", "chart version you run now")
 	f.StringVar(&o.to, "to", "", "chart version you upgrade to")
 	f.StringSliceVarP(&o.valueFiles, "values", "f", nil, "values file, repeatable, later files win")
-	f.StringVarP(&o.output, "output", "o", "text", "output format: text or json")
+	f.StringVarP(&o.output, "output", "o", "text", "output format: text, json or markdown")
 	f.StringVar(&o.appRepo, "app-repo", "", "GitHub owner/name of the app the chart ships, to check its release notes")
 	f.StringVar(&o.appTagPrefix, "app-tag-prefix", "", "prefix before the version in the app's release tags")
 	f.StringVar(&o.chartNotes, "chart-notes", "", "GitHub owner/name where the chart publishes its own releases, to check them")
@@ -88,8 +94,9 @@ func commandName() string {
 }
 
 func run(ctx context.Context, w io.Writer, chart string, o options) error {
-	if o.output != "text" && o.output != "json" {
-		return fmt.Errorf("unknown output format %q, want text or json", o.output)
+	write, ok := writers[o.output]
+	if !ok {
+		return fmt.Errorf("unknown output format %q, want text, json or markdown", o.output)
 	}
 	for _, k := range o.failOn {
 		if !slices.Contains(report.FailKinds, k) {
@@ -142,10 +149,6 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 		}
 	}
 
-	write := report.WriteText
-	if o.output == "json" {
-		write = report.WriteJSON
-	}
 	if err := write(w, res); err != nil {
 		return err
 	}

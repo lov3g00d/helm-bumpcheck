@@ -1,6 +1,7 @@
 package report
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -144,11 +145,13 @@ func lineAt(lines []string, i int) string {
 }
 
 func render(v any) string {
-	data, err := json.Marshal(v)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		return fmt.Sprint(v)
 	}
-	return truncate(string(data), maxValueLen)
+	return truncate(strings.TrimSpace(buf.String()), maxValueLen)
 }
 
 func truncate(s string, n int) string {

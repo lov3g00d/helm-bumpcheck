@@ -32,3 +32,9 @@ func TestDescribeMultilineChange(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestRenderDoesNotEscapeHTML(t *testing.T) {
+	if got := render("<b>&"); got != `"<b>&"` {
+		t.Errorf("render = %s", got)
+	}
+}
