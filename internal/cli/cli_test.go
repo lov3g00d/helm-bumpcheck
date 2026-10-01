@@ -19,6 +19,15 @@ case "$*" in
   "show chart "*"--version 2.0.0"*)
     printf 'name: mychart\nversion: 2.0.0\nappVersion: "2.0.0"\n'
     ;;
+  "template "*"--version 2.0.0"*)
+    if [ -n "$FAKE_RENDER_FAIL" ]; then
+      echo "Error: execution error at (mychart/templates/NOTES.txt:1:1):" >&2
+      echo "ERROR: legacy mode was removed, unset legacy.enabled" >&2
+      exit 1
+    fi
+    ;;
+  "template "*)
+    ;;
   *"--version 1.0.0"*)
     printf 'replicas: 1\nport: 3100\nlegacy:\n  enabled: false\npodAnnotations: {}\n'
     ;;
@@ -138,5 +147,32 @@ func TestRequiresChart(t *testing.T) {
 	setup(t)
 	if _, err := execute(t, "--from", "1.0.0", "--to", "2.0.0"); err == nil {
 		t.Error("expected error without CHART")
+	}
+}
+
+func TestRenderCheck(t *testing.T) {
+	userValues := setup(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues)
+	if err != nil || !strings.Contains(out, "Render: both versions render with your values") {
+		t.Fatalf("err %v, output:\n%s", err, out)
+	}
+
+	t.Setenv("FAKE_RENDER_FAIL", "1")
+	out, err = execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	for _, want := range []string{
+		"Render (breaking): the new chart rejects your values",
+		"  ERROR: legacy mode was removed, unset legacy.enabled",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+
+	out, _ = execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--render=false")
+	if strings.Contains(out, "Render") {
+		t.Errorf("--render=false still rendered:\n%s", out)
 	}
 }

@@ -3,13 +3,17 @@ package helm
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
+
+const maxRenderLines = 12
 
 type Runner struct {
 	Bin string
@@ -54,14 +58,60 @@ func (r Runner) ShowChart(ctx context.Context, c Chart) (Metadata, error) {
 	return m, nil
 }
 
-func (r Runner) show(ctx context.Context, what string, c Chart) ([]byte, error) {
-	args := []string{"show", what, c.Ref}
+func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) error {
+	args := c.args("template", "bumpcheck", c.Ref)
+	for _, f := range valueFiles {
+		args = append(args, "-f", f)
+	}
+	cmd := exec.CommandContext(ctx, r.Bin, args...)
+	cmd.Stdout = io.Discard
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if msg := cleanRenderError(stderr.String()); msg != "" {
+			return errors.New(msg)
+		}
+		return err
+	}
+	return nil
+}
+
+func cleanRenderError(stderr string) string {
+	var kept []string
+	for _, line := range strings.Split(stderr, "\n") {
+		t := strings.TrimSpace(line)
+		switch {
+		case t == "",
+			strings.HasPrefix(t, "###") && strings.HasSuffix(t, "###"),
+			strings.Contains(t, "warning:"),
+			strings.HasPrefix(t, "Use --debug flag"):
+			continue
+		}
+		if len(kept) == maxRenderLines {
+			kept = append(kept, "...")
+			break
+		}
+		kept = append(kept, t)
+	}
+	return strings.Join(kept, "\n")
+}
+
+func (c Chart) args(cmd ...string) []string {
+	args := append([]string{}, cmd...)
 	if c.Version != "" {
 		args = append(args, "--version", c.Version)
 	}
 	if c.Repo != "" {
 		args = append(args, "--repo", c.Repo)
 	}
+	return args
+}
+
+func (r Runner) show(ctx context.Context, what string, c Chart) ([]byte, error) {
+	args := c.args("show", what, c.Ref)
 
 	cmd := exec.CommandContext(ctx, r.Bin, args...)
 	var stderr bytes.Buffer

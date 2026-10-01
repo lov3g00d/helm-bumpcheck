@@ -23,11 +23,19 @@ type options struct {
 	appRepo      string
 	appTagPrefix string
 	threshold    float64
+	render       bool
 }
 
 type chartInfo struct {
-	defaults map[string]any
-	meta     helm.Metadata
+	defaults  map[string]any
+	meta      helm.Metadata
+	renderErr error
+}
+
+type fetchOpts struct {
+	meta       bool
+	render     bool
+	valueFiles []string
 }
 
 func NewRootCmd() *cobra.Command {
@@ -52,6 +60,7 @@ func NewRootCmd() *cobra.Command {
 	f.StringVar(&o.appRepo, "app-repo", "", "GitHub owner/name of the app the chart ships, to check its release notes")
 	f.StringVar(&o.appTagPrefix, "app-tag-prefix", "", "prefix before the version in the app's release tags")
 	f.Float64Var(&o.threshold, "threshold", 0.5, "minimum probability for a release-note match to be shown")
+	f.BoolVar(&o.render, "render", true, "render both chart versions with your values and report if only the new one fails")
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("to")
 	return cmd
@@ -82,17 +91,17 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 		return err
 	}
 
-	withMeta := o.appRepo != ""
+	fo := fetchOpts{meta: o.appRepo != "", render: o.render, valueFiles: o.valueFiles}
 	var oldChart, newChart chartInfo
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		var err error
-		oldChart, err = fetchChart(gctx, h, helm.Chart{Ref: chart, Version: o.from, Repo: o.repo}, withMeta)
+		oldChart, err = fetchChart(gctx, h, helm.Chart{Ref: chart, Version: o.from, Repo: o.repo}, fo)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		newChart, err = fetchChart(gctx, h, helm.Chart{Ref: chart, Version: o.to, Repo: o.repo}, withMeta)
+		newChart, err = fetchChart(gctx, h, helm.Chart{Ref: chart, Version: o.to, Repo: o.repo}, fo)
 		return err
 	})
 	if err := g.Wait(); err != nil {
@@ -100,6 +109,9 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 	}
 
 	res := report.Report{Chart: chart, From: o.from, To: o.to, Report: values.Compare(oldChart.defaults, newChart.defaults, user)}
+	if o.render {
+		res.Render = report.NewRender(oldChart.renderErr, newChart.renderErr)
+	}
 	if o.appRepo != "" {
 		res.Notes, err = checkNotes(ctx, chart, o, oldChart.meta.AppVersion, newChart.meta.AppVersion, res.Report)
 		if err != nil {
@@ -113,7 +125,7 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 	return report.WriteText(w, res)
 }
 
-func fetchChart(ctx context.Context, h helm.Runner, c helm.Chart, withMeta bool) (chartInfo, error) {
+func fetchChart(ctx context.Context, h helm.Runner, c helm.Chart, fo fetchOpts) (chartInfo, error) {
 	var info chartInfo
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
@@ -127,11 +139,17 @@ func fetchChart(ctx context.Context, h helm.Runner, c helm.Chart, withMeta bool)
 		}
 		return nil
 	})
-	if withMeta {
+	if fo.meta {
 		g.Go(func() error {
 			var err error
 			info.meta, err = h.ShowChart(gctx, c)
 			return err
+		})
+	}
+	if fo.render {
+		g.Go(func() error {
+			info.renderErr = h.Template(gctx, c, fo.valueFiles)
+			return gctx.Err()
 		})
 	}
 	err := g.Wait()

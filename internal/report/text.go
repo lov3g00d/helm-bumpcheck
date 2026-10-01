@@ -47,6 +47,7 @@ func WriteText(w io.Writer, res Report) error {
 	if len(r.Added) > 0 {
 		fmt.Fprintf(&b, "\n%d new keys in the target version.\n", len(r.Added))
 	}
+	writeRender(&b, res.Render)
 	if res.Notes != nil {
 		writeNotes(&b, res.Notes)
 	}
@@ -126,4 +127,26 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+func writeRender(b *strings.Builder, r *Render) {
+	switch {
+	case r == nil:
+	case r.Breaking():
+		b.WriteString("\nRender (breaking): the new chart rejects your values\n")
+		writeIndented(b, r.NewError)
+	case !r.OldOK && !r.NewOK:
+		b.WriteString("\nRender: neither version renders with your values, so this check is inconclusive\n")
+		writeIndented(b, r.NewError)
+	case !r.OldOK:
+		b.WriteString("\nRender: the new version renders with your values, the old one did not\n")
+	default:
+		b.WriteString("\nRender: both versions render with your values\n")
+	}
+}
+
+func writeIndented(b *strings.Builder, text string) {
+	for _, line := range strings.Split(text, "\n") {
+		fmt.Fprintf(b, "  %s\n", line)
+	}
 }

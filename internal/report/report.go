@@ -10,7 +10,30 @@ type Report struct {
 	From  string `json:"from"`
 	To    string `json:"to"`
 	values.Report
-	Notes *Notes `json:"notes,omitempty"`
+	Render *Render `json:"render,omitempty"`
+	Notes  *Notes  `json:"notes,omitempty"`
+}
+
+type Render struct {
+	OldOK    bool   `json:"oldOk"`
+	NewOK    bool   `json:"newOk"`
+	OldError string `json:"oldError,omitempty"`
+	NewError string `json:"newError,omitempty"`
+}
+
+func NewRender(oldErr, newErr error) *Render {
+	r := &Render{OldOK: oldErr == nil, NewOK: newErr == nil}
+	if oldErr != nil {
+		r.OldError = oldErr.Error()
+	}
+	if newErr != nil {
+		r.NewError = newErr.Error()
+	}
+	return r
+}
+
+func (r *Render) Breaking() bool {
+	return r != nil && r.OldOK && !r.NewOK
 }
 
 type Notes struct {

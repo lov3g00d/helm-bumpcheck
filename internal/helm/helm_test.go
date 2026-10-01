@@ -125,3 +125,41 @@ func TestShowChartBadYAML(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestTemplatePassesValuesAndDiscardsOutput(t *testing.T) {
+	r := Runner{Bin: fakeHelm(t, `echo "kind: Deployment"; [ "$*" = "template bumpcheck velero --version 4.0.1 --repo https://x -f a.yaml -f b.yaml" ] || { echo "bad args: $*" >&2; exit 1; }`)}
+	if err := r.Template(context.Background(), Chart{Ref: "velero", Version: "4.0.1", Repo: "https://x"}, []string{"a.yaml", "b.yaml"}); err != nil {
+		t.Fatalf("Template: %v", err)
+	}
+}
+
+func TestTemplateFailureIsCleaned(t *testing.T) {
+	stderr := "coalesce.go:301: warning: destination for velero.configuration.backupStorageLocation is a table. Ignoring non-table value\n" +
+		"Error: execution error at (velero/templates/NOTES.txt:78:4):\n\n" +
+		"#################################################################################\n" +
+		"######   BREAKING: The config values passed contained no longer accepted    #####\n" +
+		"#################################################################################\n\n" +
+		"ERROR: Please make .configuration.backupStorageLocation from map to slice\n\n" +
+		"REMOVED: .configuration.provider has been removed\n\n" +
+		"Use --debug flag to render out invalid YAML\n"
+	dir := t.TempDir()
+	msgFile := filepath.Join(dir, "stderr.txt")
+	if err := os.WriteFile(msgFile, []byte(stderr), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := Runner{Bin: fakeHelm(t, "cat "+msgFile+" >&2; exit 1")}
+	err := r.Template(context.Background(), Chart{Ref: "velero", Version: "4.0.1"}, nil)
+	want := "Error: execution error at (velero/templates/NOTES.txt:78:4):\n" +
+		"ERROR: Please make .configuration.backupStorageLocation from map to slice\n" +
+		"REMOVED: .configuration.provider has been removed"
+	if err == nil || err.Error() != want {
+		t.Errorf("err =\n%v\nwant\n%s", err, want)
+	}
+}
+
+func TestCleanRenderErrorCapsLines(t *testing.T) {
+	got := cleanRenderError(strings.Repeat("line\n", 40))
+	if n := strings.Count(got, "\n") + 1; n != maxRenderLines+1 || !strings.HasSuffix(got, "...") {
+		t.Errorf("got %d lines ending %q", n, got[len(got)-3:])
+	}
+}
