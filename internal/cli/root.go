@@ -110,7 +110,7 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 		return err
 	}
 
-	fo := fetchOpts{meta: o.appRepo != "", render: o.render, valueFiles: o.valueFiles}
+	fo := fetchOpts{meta: true, render: o.render, valueFiles: o.valueFiles}
 	var oldChart, newChart chartInfo
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
@@ -127,7 +127,11 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 		return err
 	}
 
-	res := report.Report{Chart: chart, From: o.from, To: o.to, Report: values.Compare(oldChart.defaults, newChart.defaults, user)}
+	res := report.Report{
+		Chart: chart, From: o.from, To: o.to,
+		AppFrom: oldChart.meta.AppVersion, AppTo: newChart.meta.AppVersion,
+		Report: values.Compare(oldChart.defaults, newChart.defaults, user),
+	}
 	if o.render {
 		res.Render = report.NewRender(oldChart.renderErr, newChart.renderErr)
 	}

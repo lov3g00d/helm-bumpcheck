@@ -63,9 +63,9 @@ func TestNotesTextOutput(t *testing.T) {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"Release notes (app): acme/app 1.0.0 -> 2.0.0 (2 releases, 3 entries, 3 questions)",
-		"  legacy.enabled  0.93  BREAKING",
-		"    0.93  v2.0.0 Breaking Changes: Removed legacy mode",
+		"Release notes (app): acme/app 1.0.0 -> 2.0.0, 2 releases, 3 entries, 3 questions",
+		"  removed       legacy.enabled  no longer in the chart",
+		"note 0.93  v2.0.0 Breaking Changes: Removed legacy mode",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -112,7 +112,7 @@ func TestNotesSkippedWithoutKey(t *testing.T) {
 	if !strings.Contains(out, "Release notes (app): skipped, TYPESAFE_API_KEY is not set") {
 		t.Errorf("output:\n%s", out)
 	}
-	if !strings.Contains(out, "Removed (1)") {
+	if !strings.Contains(out, "removed       legacy.enabled") {
 		t.Errorf("diff missing when notes are skipped:\n%s", out)
 	}
 }
@@ -147,7 +147,7 @@ func TestNotesSkippedOnGitHubError(t *testing.T) {
 	if !strings.Contains(out, "Release notes (app): skipped, github releases acme/missing page 1: 404 Not Found") {
 		t.Errorf("output:\n%s", out)
 	}
-	if !strings.Contains(out, "Removed (1)") {
+	if !strings.Contains(out, "removed       legacy.enabled") {
 		t.Errorf("diff lost on GitHub error:\n%s", out)
 	}
 }
@@ -159,7 +159,7 @@ func TestChartNotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Release notes (chart): acme/app 1.0.0 -> 2.0.0 (2 releases") {
+	if !strings.Contains(out, "Release notes (chart): acme/app 1.0.0 -> 2.0.0, 2 releases") {
 		t.Errorf("output:\n%s", out)
 	}
 

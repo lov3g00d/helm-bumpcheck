@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
@@ -12,7 +13,35 @@ import (
 const (
 	maxValueLen = 60
 	maxEntryLen = 120
+	maxPathCol  = 48
+	kindCol     = 12
 )
+
+type style struct{ on bool }
+
+func (s style) wrap(code, text string) string {
+	if !s.on || text == "" {
+		return text
+	}
+	return "\x1b[" + code + "m" + text + "\x1b[0m"
+}
+
+func (s style) bold(t string) string   { return s.wrap("1", t) }
+func (s style) red(t string) string    { return s.wrap("31", t) }
+func (s style) yellow(t string) string { return s.wrap("33", t) }
+func (s style) dim(t string) string    { return s.wrap("2", t) }
+
+func colorEnabled(w io.Writer) bool {
+	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+		return false
+	}
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
 
 func WriteJSON(w io.Writer, res Report) error {
 	enc := json.NewEncoder(w)
@@ -21,67 +50,75 @@ func WriteJSON(w io.Writer, res Report) error {
 }
 
 func WriteText(w io.Writer, res Report) error {
-	r := res.Report
+	v := build(res)
+	st := style{on: colorEnabled(w)}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s -> %s\n", res.Chart, res.From, res.To)
 
-	changed := make([]string, len(r.DefaultChanged))
-	for i, c := range r.DefaultChanged {
-		changed[i] = describeChange(c)
-	}
+	fmt.Fprintf(&b, "%s\n%s\n", st.bold(v.Title), v.Verdict)
+	writeSection(&b, st, st.red, "BREAKING", "", v.Breaking)
+	writeSection(&b, st, st.yellow, "CHECK", "", v.Check)
+	writeSection(&b, st, st.dim, "UNVERIFIED", v.Why, v.Unverified)
 
-	typed := make([]string, len(r.TypeChanged))
-	for i, tc := range r.TypeChanged {
-		typed[i] = fmt.Sprintf("%s: %s -> %s (%d %s you set)", tc.Path, tc.Old, tc.New, len(tc.Keys), plural(len(tc.Keys), "key", "keys"))
-	}
-
-	section(&b, "Removed", "keys you set that the new chart no longer declares", r.Removed)
-	section(&b, "Type changed", "blocks you set whose type changed in the new chart", typed)
-	section(&b, "Default changed", "keys you rely on whose default changed", changed)
-	section(&b, "Free-form", "keys inside open blocks, not checked against the chart", r.Freeform)
-	section(&b, "Undeclared", "keys the chart never declared", r.Undeclared)
-
-	if len(r.Removed)+len(typed)+len(changed)+len(r.Freeform)+len(r.Undeclared) == 0 {
-		b.WriteString("\nNo changes affect the values you set.\n")
-	}
-	if len(r.Added) > 0 {
-		fmt.Fprintf(&b, "\n%d new keys in the target version.\n", len(r.Added))
-	}
-	writeRender(&b, res.Render)
-	for _, n := range res.Notes {
-		writeNotes(&b, n)
+	if len(v.Footer) > 0 {
+		b.WriteString("\n")
+		for _, line := range v.Footer {
+			fmt.Fprintf(&b, "%s\n", st.dim(line))
+		}
 	}
 
 	_, err := io.WriteString(w, b.String())
 	return err
 }
 
-func writeNotes(b *strings.Builder, n *Notes) {
-	if n.Skipped != "" {
-		fmt.Fprintf(b, "\nRelease notes (%s): skipped, %s\n", n.Source, n.Skipped)
+func writeSection(b *strings.Builder, st style, color func(string) string, name, why string, rows []row) {
+	if len(rows) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "\nRelease notes (%s): %s %s -> %s (%d releases, %d entries, %d questions)\n",
-		n.Source, n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions)
+	header := st.bold(name)
+	if why != "" {
+		header += "  " + st.dim(why)
+	}
+	fmt.Fprintf(b, "\n%s\n", header)
 
-	groups := groupByKey(n.Matches, n.Threshold)
-	if len(groups) == 0 {
-		fmt.Fprintf(b, "  No entries at or above %.2f.\n", n.Threshold)
-		return
+	width := 0
+	for _, r := range rows {
+		width = max(width, min(len(r.Path), maxPathCol))
 	}
-	for _, g := range groups {
-		writeKeyHits(b, g)
+	indent := strings.Repeat(" ", 2+kindCol+2)
+
+	for _, r := range rows {
+		line := "  " + color(pad(r.Kind, kindCol))
+		switch {
+		case r.Path != "" && r.Detail != "":
+			line += "  " + pad(r.Path, width) + "  " + r.Detail
+		case r.Path != "":
+			line += "  " + r.Path
+		default:
+			line += "  " + r.Detail
+		}
+		fmt.Fprintf(b, "%s\n", strings.TrimRight(line, " "))
+
+		for _, l := range r.Lines {
+			fmt.Fprintf(b, "%s%s\n", indent, l)
+		}
+		for _, e := range r.Evidence {
+			where := e.Release
+			if e.Section != "" {
+				where += " " + e.Section
+			}
+			fmt.Fprintf(b, "%s%s\n", indent, st.dim(fmt.Sprintf("note %.2f  %s: %s", e.Probability, where, truncate(e.Text, maxEntryLen))))
+		}
+		if r.More > 0 {
+			fmt.Fprintf(b, "%s%s\n", indent, st.dim(fmt.Sprintf("+ %d more %s", r.More, plural(r.More, "note", "notes"))))
+		}
 	}
 }
 
-func section(b *strings.Builder, name, help string, lines []string) {
-	if len(lines) == 0 {
-		return
+func pad(s string, n int) string {
+	if len(s) >= n {
+		return s
 	}
-	fmt.Fprintf(b, "\n%s (%d): %s\n", name, len(lines), help)
-	for _, l := range lines {
-		fmt.Fprintf(b, "  %s\n", l)
-	}
+	return s + strings.Repeat(" ", n-len(s))
 }
 
 func describeChange(c values.Change) string {
@@ -92,11 +129,11 @@ func describeChange(c values.Change) string {
 		for i := range max(len(oldLines), len(newLines)) {
 			a, b := lineAt(oldLines, i), lineAt(newLines, i)
 			if a != b {
-				return fmt.Sprintf("%s: line %d: %s -> %s", c.Path, i+1, render(a), render(b))
+				return fmt.Sprintf("line %d: %s -> %s", i+1, render(a), render(b))
 			}
 		}
 	}
-	return fmt.Sprintf("%s: %s -> %s", c.Path, render(c.Old), render(c.New))
+	return fmt.Sprintf("%s -> %s", render(c.Old), render(c.New))
 }
 
 func lineAt(lines []string, i int) string {
@@ -127,26 +164,4 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
-}
-
-func writeRender(b *strings.Builder, r *Render) {
-	switch {
-	case r == nil:
-	case r.Breaking():
-		b.WriteString("\nRender (breaking): the new chart rejects your values\n")
-		writeIndented(b, r.NewError)
-	case !r.OldOK && !r.NewOK:
-		b.WriteString("\nRender: neither version renders with your values, so this check is inconclusive\n")
-		writeIndented(b, r.NewError)
-	case !r.OldOK:
-		b.WriteString("\nRender: the new version renders with your values, the old one did not\n")
-	default:
-		b.WriteString("\nRender: both versions render with your values\n")
-	}
-}
-
-func writeIndented(b *strings.Builder, text string) {
-	for _, line := range strings.Split(text, "\n") {
-		fmt.Fprintf(b, "  %s\n", line)
-	}
 }

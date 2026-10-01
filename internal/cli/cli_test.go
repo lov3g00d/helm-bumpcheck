@@ -78,13 +78,10 @@ func TestTextOutput(t *testing.T) {
 	}
 	for _, want := range []string{
 		"mychart 1.0.0 -> 2.0.0",
-		"Removed (1)",
-		"  legacy.enabled",
-		"Default changed (1)",
-		"  port: 3100 -> 3200",
-		"Free-form (1)",
-		"  podAnnotations.team",
-		"1 new keys in the target version.",
+		"  removed       legacy.enabled  no longer in the chart",
+		"\nCHECK\n  default       port  3100 -> 3200",
+		"  free-form     podAnnotations.team",
+		"1 key added in 2.0.0. Use -o json to list them.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -116,7 +113,7 @@ func TestNothingAffected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "No changes affect the values you set.") {
+	if !strings.Contains(out, "Result: nothing in this upgrade affects the values you set") {
 		t.Errorf("output:\n%s", out)
 	}
 }
@@ -164,8 +161,8 @@ func TestRenderCheck(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	for _, want := range []string{
-		"Render (breaking): the new chart rejects your values",
-		"  ERROR: legacy mode was removed, unset legacy.enabled",
+		"  render        the new chart rejects your values",
+		"                ERROR: legacy mode was removed, unset legacy.enabled",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -184,7 +181,7 @@ func TestFailOn(t *testing.T) {
 	if !errors.Is(err, ErrFindings) || !strings.Contains(err.Error(), "removed") || strings.Contains(err.Error(), "render") {
 		t.Errorf("err = %v, want findings for removed only", err)
 	}
-	if !strings.Contains(out, "Removed (1)") {
+	if !strings.Contains(out, "removed       legacy.enabled") {
 		t.Errorf("report not written before failing:\n%s", out)
 	}
 

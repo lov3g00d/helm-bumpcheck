@@ -6,9 +6,11 @@ import (
 )
 
 type Report struct {
-	Chart string `json:"chart"`
-	From  string `json:"from"`
-	To    string `json:"to"`
+	Chart   string `json:"chart"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	AppFrom string `json:"appFrom,omitempty"`
+	AppTo   string `json:"appTo,omitempty"`
 	values.Report
 	Render *Render  `json:"render,omitempty"`
 	Notes  []*Notes `json:"notes,omitempty"`
