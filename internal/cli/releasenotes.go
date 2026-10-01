@@ -21,17 +21,17 @@ type notesSource struct {
 	to        string
 }
 
-func notesSources(chart string, o options, oldMeta, newMeta string) []notesSource {
+func notesSources(s spec, o options, oldMeta, newMeta string) []notesSource {
 	var out []notesSource
-	if o.chartNotes != "" {
+	if s.chartNotes != "" {
 		prefix := o.chartTagPrefix
 		if prefix == "" {
-			prefix = path.Base(chart) + "-"
+			prefix = path.Base(s.name) + "-"
 		}
-		out = append(out, notesSource{kind: "chart", repo: o.chartNotes, tagPrefix: prefix, from: o.from, to: o.to})
+		out = append(out, notesSource{kind: "chart", repo: s.chartNotes, tagPrefix: prefix, from: s.from, to: s.to})
 	}
-	if o.appRepo != "" {
-		out = append(out, notesSource{kind: "app", repo: o.appRepo, tagPrefix: o.appTagPrefix, from: oldMeta, to: newMeta})
+	if s.appRepo != "" {
+		out = append(out, notesSource{kind: "app", repo: s.appRepo, tagPrefix: o.appTagPrefix, from: oldMeta, to: newMeta})
 	}
 	return out
 }

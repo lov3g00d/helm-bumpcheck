@@ -3,18 +3,13 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
-
-	"github.com/spf13/cobra"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
 	"github.com/lov3g00d/helm-bumpcheck/internal/report"
-	"github.com/lov3g00d/helm-bumpcheck/internal/values"
+	"github.com/spf13/cobra"
 )
 
 type options struct {
@@ -39,18 +34,6 @@ var writers = map[string]func(io.Writer, report.Report) error{
 	"text":     report.WriteText,
 	"json":     report.WriteJSON,
 	"markdown": report.WriteMarkdown,
-}
-
-type chartInfo struct {
-	defaults  map[string]any
-	meta      helm.Metadata
-	renderErr error
-}
-
-type fetchOpts struct {
-	meta       bool
-	render     bool
-	valueFiles []string
 }
 
 func NewRootCmd() *cobra.Command {
@@ -94,97 +77,30 @@ func commandName() string {
 }
 
 func run(ctx context.Context, w io.Writer, chart string, o options) error {
-	write, ok := writers[o.output]
-	if !ok {
-		return fmt.Errorf("unknown output format %q, want text, json or markdown", o.output)
+	write, err := validate(o)
+	if err != nil {
+		return err
 	}
-	for _, k := range o.failOn {
-		if !slices.Contains(report.FailKinds, k) {
-			return fmt.Errorf("unknown --fail-on kind %q, want any of %s", k, strings.Join(report.FailKinds, ", "))
-		}
-	}
-	if o.threshold < 0 || o.threshold > 1 {
-		return fmt.Errorf("threshold must be between 0 and 1, got %v", o.threshold)
-	}
-
 	h, err := helm.Detect()
 	if err != nil {
 		return err
 	}
 
-	user, err := values.LoadFiles(o.valueFiles)
+	res, err := analyze(ctx, h, spec{
+		name:       chart,
+		from:       o.from,
+		to:         o.to,
+		old:        helm.Chart{Ref: chart, Version: o.from, Repo: o.repo},
+		new:        helm.Chart{Ref: chart, Version: o.to, Repo: o.repo},
+		valueFiles: o.valueFiles,
+		appRepo:    o.appRepo,
+		chartNotes: o.chartNotes,
+	}, o)
 	if err != nil {
 		return err
 	}
-
-	fo := fetchOpts{meta: true, render: o.render, valueFiles: o.valueFiles}
-	var oldChart, newChart chartInfo
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		var err error
-		oldChart, err = fetchChart(gctx, h, helm.Chart{Ref: chart, Version: o.from, Repo: o.repo}, fo)
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		newChart, err = fetchChart(gctx, h, helm.Chart{Ref: chart, Version: o.to, Repo: o.repo}, fo)
-		return err
-	})
-	if err := g.Wait(); err != nil {
-		return err
-	}
-
-	res := report.Report{
-		Chart: chart, From: o.from, To: o.to,
-		AppFrom: oldChart.meta.AppVersion, AppTo: newChart.meta.AppVersion,
-		Report: values.Compare(oldChart.defaults, newChart.defaults, user),
-	}
-	if o.render {
-		res.Render = report.NewRender(oldChart.renderErr, newChart.renderErr)
-	}
-	if sources := notesSources(chart, o, oldChart.meta.AppVersion, newChart.meta.AppVersion); len(sources) > 0 {
-		res.Notes, err = checkAllNotes(ctx, chart, o, sources, res.Report)
-		if err != nil {
-			return err
-		}
-	}
-
 	if err := write(w, res); err != nil {
 		return err
 	}
-	if hits := res.Failing(o.failOn); len(hits) > 0 {
-		return fmt.Errorf("%w: %s", ErrFindings, strings.Join(hits, ", "))
-	}
-	return nil
-}
-
-func fetchChart(ctx context.Context, h helm.Runner, c helm.Chart, fo fetchOpts) (chartInfo, error) {
-	var info chartInfo
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		data, err := h.ShowValues(gctx, c)
-		if err != nil {
-			return err
-		}
-		info.defaults, err = values.Parse(data)
-		if err != nil {
-			return fmt.Errorf("parse values of %s %s: %w", c.Ref, c.Version, err)
-		}
-		return nil
-	})
-	if fo.meta {
-		g.Go(func() error {
-			var err error
-			info.meta, err = h.ShowChart(gctx, c)
-			return err
-		})
-	}
-	if fo.render {
-		g.Go(func() error {
-			info.renderErr = h.Template(gctx, c, fo.valueFiles)
-			return gctx.Err()
-		})
-	}
-	err := g.Wait()
-	return info, err
+	return failing(o, res)
 }
