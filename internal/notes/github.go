@@ -121,7 +121,11 @@ func (g *GitHub) page(ctx context.Context, repo string, page int) ([]ghRelease, 
 	body := io.LimitReader(resp.Body, maxResponseSize)
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(body, 1<<10))
-		return nil, fmt.Errorf("github releases %s page %d: %s: %s", repo, page, resp.Status, strings.TrimSpace(string(msg)))
+		err := fmt.Errorf("github releases %s page %d: %s: %s", repo, page, resp.Status, strings.TrimSpace(string(msg)))
+		if g.Token == "" && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusUnprocessableEntity) {
+			err = fmt.Errorf("%w (unauthenticated: set GITHUB_TOKEN, for example GITHUB_TOKEN=$(gh auth token))", err)
+		}
+		return nil, err
 	}
 
 	var out []ghRelease

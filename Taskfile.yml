@@ -45,5 +45,15 @@ tasks:
     desc: Run tests that call real APIs (GitHub, and Jev when TYPESAFE_API_KEY is set)
     env:
       LIVE: '1'
+      GITHUB_TOKEN:
+        sh: echo "${GITHUB_TOKEN:-$(gh auth token 2>/dev/null)}"
     cmds:
       - go test -run 'TestLive' -v ./...
+
+  eval:
+    desc: Compare Jev with the keyword baseline on labelled cases (calls the Jev API)
+    env:
+      GITHUB_TOKEN:
+        sh: echo "${GITHUB_TOKEN:-$(gh auth token 2>/dev/null)}"
+    cmds:
+      - go run ./cmd/eval -cases {{.CASES | default "eval/cases.yaml"}} {{.CLI_ARGS}}

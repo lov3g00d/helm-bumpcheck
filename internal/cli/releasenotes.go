@@ -12,8 +12,6 @@ import (
 	"github.com/lov3g00d/helm-values-impact/internal/values"
 )
 
-const jevConcurrency = 8
-
 type notesResult struct {
 	Repo      string        `json:"repo"`
 	From      string        `json:"from"`
@@ -50,21 +48,18 @@ func checkNotes(ctx context.Context, chart string, o options, fromApp, toApp str
 		return res, nil
 	}
 
-	releases, err := notes.NewGitHubFromEnv().Releases(ctx, o.appRepo, o.appTagPrefix, fromApp, toApp)
+	out, err := match.CheckReleaseNotes(ctx, notes.NewGitHubFromEnv(), client, match.Request{
+		Repo:      o.appRepo,
+		TagPrefix: o.appTagPrefix,
+		From:      fromApp,
+		To:        toApp,
+		Keys:      keys,
+		Ignore:    []string{path.Base(chart)},
+	})
 	if err != nil {
 		return skipOnError(ctx, res, err)
 	}
-	var entries []notes.Entry
-	for _, rel := range releases {
-		entries = append(entries, notes.Split(rel)...)
-	}
-	res.Releases, res.Entries = len(releases), len(entries)
-
-	candidates := match.Candidates(entries, keys, []string{path.Base(chart), path.Base(o.appRepo)})
-	res.Matches, res.Stats, err = match.Ask(ctx, client, candidates, jevConcurrency)
-	if err != nil {
-		return skipOnError(ctx, res, err)
-	}
+	res.Releases, res.Entries, res.Matches, res.Stats = len(out.Releases), len(out.Entries), out.Matches, out.Stats
 	return res, nil
 }
 

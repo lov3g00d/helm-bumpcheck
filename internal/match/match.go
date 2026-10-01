@@ -3,6 +3,7 @@ package match
 import (
 	"context"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"unicode"
@@ -13,7 +14,10 @@ import (
 	"github.com/lov3g00d/helm-values-impact/internal/notes"
 )
 
-const minTermLen = 4
+const (
+	minTermLen         = 4
+	DefaultConcurrency = 8
+)
 
 var genericTerms = map[string]bool{
 	"enabled":          true,
@@ -212,4 +216,65 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n-3]) + "..."
+}
+
+type Request struct {
+	Repo      string
+	TagPrefix string
+	From      string
+	To        string
+	Keys      []string
+	Ignore    []string
+}
+
+type Result struct {
+	Releases []notes.Release
+	Entries  []notes.Entry
+	Matches  []Match
+	Stats    Stats
+}
+
+func CheckReleaseNotes(ctx context.Context, gh *notes.GitHub, ev Evaluator, req Request) (Result, error) {
+	releases, err := gh.Releases(ctx, req.Repo, req.TagPrefix, req.From, req.To)
+	if err != nil {
+		return Result{}, err
+	}
+	entries := SplitAll(releases)
+	candidates := Candidates(entries, req.Keys, req.ignore())
+	matches, stats, err := Ask(ctx, ev, candidates, DefaultConcurrency)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Releases: releases, Entries: entries, Matches: matches, Stats: stats}, nil
+}
+
+func (r Request) ignore() []string {
+	return append([]string{path.Base(r.Repo)}, r.Ignore...)
+}
+
+func SplitAll(releases []notes.Release) []notes.Entry {
+	var entries []notes.Entry
+	for _, rel := range releases {
+		entries = append(entries, notes.Split(rel)...)
+	}
+	return entries
+}
+
+func KeywordKeys(entries []notes.Entry, req Request) []string {
+	ignored := map[string]bool{}
+	for _, i := range req.ignore() {
+		ignored[normalize(i)] = true
+	}
+	var out []string
+	for _, k := range req.Keys {
+		terms := Terms(k, ignored)
+		for _, e := range entries {
+			if containsAny(normalize(e.Text), terms) {
+				out = append(out, k)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

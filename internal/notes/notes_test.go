@@ -211,3 +211,22 @@ func dump(es []Entry) string {
 	}
 	return b.String()
 }
+
+func TestReleasesUnauthenticatedHint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"API rate limit exceeded"}`, http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	g := &GitHub{BaseURL: srv.URL, HTTP: &http.Client{Timeout: 5 * time.Second}, PerPage: 100, MaxPages: 1}
+	_, err := g.Releases(context.Background(), "acme/app", "", "1.0.0", "2.0.0")
+	if err == nil || !strings.Contains(err.Error(), "set GITHUB_TOKEN") {
+		t.Errorf("err = %v, want a GITHUB_TOKEN hint", err)
+	}
+
+	g.Token = "t"
+	_, err = g.Releases(context.Background(), "acme/app", "", "1.0.0", "2.0.0")
+	if err == nil || strings.Contains(err.Error(), "set GITHUB_TOKEN") {
+		t.Errorf("err = %v, want no hint when a token is set", err)
+	}
+}

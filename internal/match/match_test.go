@@ -176,3 +176,22 @@ func TestLiveLocalBlocks(t *testing.T) {
 	}
 	t.Logf("stats %+v", stats)
 }
+
+func TestKeywordKeys(t *testing.T) {
+	entries := []notes.Entry{
+		{Section: "Breaking Changes", Text: "Removed metrics-generator localblocks processor"},
+		{Section: "Features", Text: "Tempo now ships a new UI"},
+	}
+	req := Request{
+		Repo: "grafana/tempo",
+		Keys: []string{
+			"tempo.server.http_listen_port",
+			"tempo.metricsGenerator.processor.local_blocks.flush_to_storage",
+			"tempo.retention",
+		},
+	}
+	got := KeywordKeys(entries, req)
+	if want := []string{"tempo.metricsGenerator.processor.local_blocks.flush_to_storage"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("KeywordKeys = %v, want %v", got, want)
+	}
+}
