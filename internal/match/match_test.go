@@ -195,3 +195,16 @@ func TestKeywordKeys(t *testing.T) {
 		t.Errorf("KeywordKeys = %v, want %v", got, want)
 	}
 }
+
+func TestSplitAllDropsBoilerplate(t *testing.T) {
+	rel := notes.Release{Tag: "velero-4.0.0", Body: "A Helm chart for velero\n\n## What's Changed\n* [velero] Add support for multiple locations by @a in #413\n\n## New Contributors\n* @a made their first contribution in #413\n\n**Full Changelog**: https://github.com/x/y/compare/a...b"}
+	got := SplitAll([]notes.Release{rel})
+	var texts []string
+	for _, e := range got {
+		texts = append(texts, e.Text)
+	}
+	want := []string{"A Helm chart for velero", "[velero] Add support for multiple locations by @a in #413"}
+	if !reflect.DeepEqual(texts, want) {
+		t.Errorf("SplitAll texts = %q, want %q", texts, want)
+	}
+}

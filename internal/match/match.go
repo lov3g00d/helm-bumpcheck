@@ -240,8 +240,7 @@ func CheckReleaseNotes(ctx context.Context, gh *notes.GitHub, ev Evaluator, req 
 		return Result{}, err
 	}
 	entries := SplitAll(releases)
-	candidates := Candidates(entries, req.Keys, req.ignore())
-	matches, stats, err := Ask(ctx, ev, candidates, DefaultConcurrency)
+	matches, stats, err := Ask(ctx, ev, Candidates(entries, req.Keys, req.ignore()), DefaultConcurrency)
 	if err != nil {
 		return Result{}, err
 	}
@@ -255,9 +254,21 @@ func (r Request) ignore() []string {
 func SplitAll(releases []notes.Release) []notes.Entry {
 	var entries []notes.Entry
 	for _, rel := range releases {
-		entries = append(entries, notes.Split(rel)...)
+		for _, e := range notes.Split(rel) {
+			if !boilerplate(e) {
+				entries = append(entries, e)
+			}
+		}
 	}
 	return entries
+}
+
+func boilerplate(e notes.Entry) bool {
+	s, t := strings.ToLower(e.Section), strings.ToLower(e.Text)
+	return s == "new contributors" ||
+		strings.HasPrefix(t, "**full changelog**") ||
+		strings.HasPrefix(t, "full changelog") ||
+		strings.Contains(t, "made their first contribution")
 }
 
 func KeywordKeys(entries []notes.Entry, req Request) []string {
