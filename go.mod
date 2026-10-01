@@ -1,4 +1,4 @@
-module github.com/lov3g00d/helm-values-impact
+module github.com/lov3g00d/helm-bumpcheck
 
 go 1.26.7
 

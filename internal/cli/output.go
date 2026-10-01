@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/lov3g00d/helm-values-impact/internal/values"
+	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
 const (

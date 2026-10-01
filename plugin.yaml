@@ -1,7 +1,7 @@
-name: values-impact
+name: bumpcheck
 version: 0.1.0
-usage: Show how a chart upgrade affects the values you set
-description: Compare chart default values between two versions against your values files
+usage: Check a chart version bump against the values you set
+description: Diff chart defaults across a version bump against your values files and match the app release notes to the keys you set
 ignoreFlags: false
 platformCommand:
-  - command: ${HELM_PLUGIN_DIR}/bin/helm-values-impact
+  - command: ${HELM_PLUGIN_DIR}/bin/helm-bumpcheck

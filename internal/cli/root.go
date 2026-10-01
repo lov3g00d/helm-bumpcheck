@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/lov3g00d/helm-values-impact/internal/helm"
-	"github.com/lov3g00d/helm-values-impact/internal/values"
+	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
+	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
 type options struct {
@@ -63,9 +63,9 @@ func NewRootCmd() *cobra.Command {
 
 func commandName() string {
 	if os.Getenv("HELM_PLUGIN_NAME") != "" {
-		return "helm values-impact"
+		return "helm bumpcheck"
 	}
-	return "helm-values-impact"
+	return "helm-bumpcheck"
 }
 
 func run(ctx context.Context, w io.Writer, chart string, o options) error {

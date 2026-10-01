@@ -3,7 +3,7 @@ package eval
 import (
 	"slices"
 
-	"github.com/lov3g00d/helm-values-impact/internal/match"
+	"github.com/lov3g00d/helm-bumpcheck/internal/match"
 )
 
 type Score struct {

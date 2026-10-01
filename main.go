@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/lov3g00d/helm-values-impact/internal/cli"
+	"github.com/lov3g00d/helm-bumpcheck/internal/cli"
 )
 
 func main() {

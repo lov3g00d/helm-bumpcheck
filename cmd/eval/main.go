@@ -8,9 +8,9 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/lov3g00d/helm-values-impact/internal/eval"
-	"github.com/lov3g00d/helm-values-impact/internal/jev"
-	"github.com/lov3g00d/helm-values-impact/internal/notes"
+	"github.com/lov3g00d/helm-bumpcheck/internal/eval"
+	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
+	"github.com/lov3g00d/helm-bumpcheck/internal/notes"
 )
 
 type config struct {

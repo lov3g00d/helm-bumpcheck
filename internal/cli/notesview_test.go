@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lov3g00d/helm-values-impact/internal/match"
+	"github.com/lov3g00d/helm-bumpcheck/internal/match"
 )
 
 func TestCleanEntry(t *testing.T) {

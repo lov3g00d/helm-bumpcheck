@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lov3g00d/helm-values-impact/internal/jev"
-	"github.com/lov3g00d/helm-values-impact/internal/match"
-	"github.com/lov3g00d/helm-values-impact/internal/notes"
+	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
+	"github.com/lov3g00d/helm-bumpcheck/internal/match"
+	"github.com/lov3g00d/helm-bumpcheck/internal/notes"
 )
 
 const (

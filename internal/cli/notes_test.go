@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lov3g00d/helm-values-impact/internal/jev"
+	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
 )
 
 func fakeAPIs(t *testing.T) {

@@ -6,10 +6,10 @@ import (
 	"path"
 	"slices"
 
-	"github.com/lov3g00d/helm-values-impact/internal/jev"
-	"github.com/lov3g00d/helm-values-impact/internal/match"
-	"github.com/lov3g00d/helm-values-impact/internal/notes"
-	"github.com/lov3g00d/helm-values-impact/internal/values"
+	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
+	"github.com/lov3g00d/helm-bumpcheck/internal/match"
+	"github.com/lov3g00d/helm-bumpcheck/internal/notes"
+	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
 type notesResult struct {
