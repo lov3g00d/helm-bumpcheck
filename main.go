@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 
@@ -12,7 +14,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	err := cli.NewRootCmd().ExecuteContext(ctx)
 	stop()
-	if err != nil {
+	switch {
+	case err == nil:
+	case errors.Is(err, cli.ErrFindings):
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	default:
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }

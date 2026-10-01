@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -24,7 +27,10 @@ type options struct {
 	appTagPrefix string
 	threshold    float64
 	render       bool
+	failOn       []string
 }
+
+var ErrFindings = errors.New("report has findings")
 
 type chartInfo struct {
 	defaults  map[string]any
@@ -41,10 +47,11 @@ type fetchOpts struct {
 func NewRootCmd() *cobra.Command {
 	var o options
 	cmd := &cobra.Command{
-		Use:          commandName() + " CHART --from VERSION --to VERSION [-f values.yaml]...",
-		Short:        "Show how a chart upgrade affects the values you set",
-		Args:         cobra.ExactArgs(1),
-		SilenceUsage: true,
+		Use:           commandName() + " CHART --from VERSION --to VERSION [-f values.yaml]...",
+		Short:         "Show how a chart upgrade affects the values you set",
+		Args:          cobra.ExactArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd.Context(), cmd.OutOrStdout(), args[0], o)
 		},
@@ -60,6 +67,7 @@ func NewRootCmd() *cobra.Command {
 	f.StringVar(&o.appRepo, "app-repo", "", "GitHub owner/name of the app the chart ships, to check its release notes")
 	f.StringVar(&o.appTagPrefix, "app-tag-prefix", "", "prefix before the version in the app's release tags")
 	f.Float64Var(&o.threshold, "threshold", 0.5, "minimum probability for a release-note match to be shown")
+	f.StringSliceVar(&o.failOn, "fail-on", nil, "exit with code 2 if the report has any of: "+strings.Join(report.FailKinds, ", "))
 	f.BoolVar(&o.render, "render", true, "render both chart versions with your values and report if only the new one fails")
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("to")
@@ -76,6 +84,11 @@ func commandName() string {
 func run(ctx context.Context, w io.Writer, chart string, o options) error {
 	if o.output != "text" && o.output != "json" {
 		return fmt.Errorf("unknown output format %q, want text or json", o.output)
+	}
+	for _, k := range o.failOn {
+		if !slices.Contains(report.FailKinds, k) {
+			return fmt.Errorf("unknown --fail-on kind %q, want any of %s", k, strings.Join(report.FailKinds, ", "))
+		}
 	}
 	if o.threshold < 0 || o.threshold > 1 {
 		return fmt.Errorf("threshold must be between 0 and 1, got %v", o.threshold)
@@ -119,10 +132,17 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 		}
 	}
 
+	write := report.WriteText
 	if o.output == "json" {
-		return report.WriteJSON(w, res)
+		write = report.WriteJSON
 	}
-	return report.WriteText(w, res)
+	if err := write(w, res); err != nil {
+		return err
+	}
+	if hits := res.Failing(o.failOn); len(hits) > 0 {
+		return fmt.Errorf("%w: %s", ErrFindings, strings.Join(hits, ", "))
+	}
+	return nil
 }
 
 func fetchChart(ctx context.Context, h helm.Runner, c helm.Chart, fo fetchOpts) (chartInfo, error) {

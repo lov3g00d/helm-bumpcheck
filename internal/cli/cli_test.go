@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,5 +175,25 @@ func TestRenderCheck(t *testing.T) {
 	out, _ = execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--render=false")
 	if strings.Contains(out, "Render") {
 		t.Errorf("--render=false still rendered:\n%s", out)
+	}
+}
+
+func TestFailOn(t *testing.T) {
+	userValues := setup(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--fail-on", "removed,type,render")
+	if !errors.Is(err, ErrFindings) || !strings.Contains(err.Error(), "removed") || strings.Contains(err.Error(), "render") {
+		t.Errorf("err = %v, want findings for removed only", err)
+	}
+	if !strings.Contains(out, "Removed (1)") {
+		t.Errorf("report not written before failing:\n%s", out)
+	}
+
+	if _, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--fail-on", "type"); err != nil {
+		t.Errorf("err = %v, want none when no type changes", err)
+	}
+
+	_, err = execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "--fail-on", "notes")
+	if err == nil || errors.Is(err, ErrFindings) || !strings.Contains(err.Error(), "unknown --fail-on kind") {
+		t.Errorf("err = %v, want unknown kind error", err)
 	}
 }

@@ -47,3 +47,26 @@ type Notes struct {
 	Matches   []match.Match `json:"matches"`
 	Skipped   string        `json:"skipped,omitempty"`
 }
+
+var FailKinds = []string{"removed", "type", "render", "default"}
+
+func (r Report) Failing(kinds []string) []string {
+	var hits []string
+	for _, k := range kinds {
+		var hit bool
+		switch k {
+		case "removed":
+			hit = len(r.Removed) > 0
+		case "type":
+			hit = len(r.TypeChanged) > 0
+		case "render":
+			hit = r.Render.Breaking()
+		case "default":
+			hit = len(r.DefaultChanged) > 0
+		}
+		if hit {
+			hits = append(hits, k)
+		}
+	}
+	return hits
+}
