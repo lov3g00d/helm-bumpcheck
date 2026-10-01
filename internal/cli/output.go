@@ -57,17 +57,13 @@ func writeNotes(b *strings.Builder, n *notesResult) {
 	fmt.Fprintf(b, "\nRelease notes: %s %s -> %s (%d releases, %d entries, %d questions)\n",
 		n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions)
 
-	shown := 0
-	for _, m := range n.Matches {
-		if m.Probability < n.Threshold {
-			continue
-		}
-		shown++
-		fmt.Fprintf(b, "  %.2f  %s\n", m.Probability, m.Key)
-		fmt.Fprintf(b, "        %s %s: %s\n", m.Release, m.Section, truncate(m.Text, maxEntryLen))
-	}
-	if shown == 0 {
+	groups := groupByKey(n.Matches, n.Threshold)
+	if len(groups) == 0 {
 		fmt.Fprintf(b, "  No entries at or above %.2f.\n", n.Threshold)
+		return
+	}
+	for _, g := range groups {
+		writeKeyHits(b, g)
 	}
 }
 

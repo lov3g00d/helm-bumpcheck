@@ -63,8 +63,8 @@ func TestNotesTextOutput(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Release notes: acme/app 1.0.0 -> 2.0.0 (2 releases, 3 entries, 3 questions)",
-		"  0.93  legacy.enabled",
-		"        v2.0.0 Breaking Changes: Removed legacy mode",
+		"  legacy.enabled  0.93  BREAKING",
+		"    0.93  v2.0.0 Breaking Changes: Removed legacy mode",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
