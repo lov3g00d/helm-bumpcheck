@@ -10,8 +10,8 @@ type Report struct {
 	From  string `json:"from"`
 	To    string `json:"to"`
 	values.Report
-	Render *Render `json:"render,omitempty"`
-	Notes  *Notes  `json:"notes,omitempty"`
+	Render *Render  `json:"render,omitempty"`
+	Notes  []*Notes `json:"notes,omitempty"`
 }
 
 type Render struct {
@@ -37,7 +37,9 @@ func (r *Render) Breaking() bool {
 }
 
 type Notes struct {
+	Source    string        `json:"source"`
 	Repo      string        `json:"repo"`
+	TagPrefix string        `json:"tagPrefix,omitempty"`
 	From      string        `json:"from"`
 	To        string        `json:"to"`
 	Releases  int           `json:"releases"`

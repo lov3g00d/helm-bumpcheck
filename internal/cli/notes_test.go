@@ -63,7 +63,7 @@ func TestNotesTextOutput(t *testing.T) {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"Release notes: acme/app 1.0.0 -> 2.0.0 (2 releases, 3 entries, 3 questions)",
+		"Release notes (app): acme/app 1.0.0 -> 2.0.0 (2 releases, 3 entries, 3 questions)",
 		"  legacy.enabled  0.93  BREAKING",
 		"    0.93  v2.0.0 Breaking Changes: Removed legacy mode",
 	} {
@@ -84,8 +84,8 @@ func TestNotesJSONKeepsAllMatches(t *testing.T) {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
 	var res struct {
-		Removed []string     `json:"removed"`
-		Notes   report.Notes `json:"notes"`
+		Removed []string       `json:"removed"`
+		Notes   []report.Notes `json:"notes"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, out)
@@ -93,7 +93,10 @@ func TestNotesJSONKeepsAllMatches(t *testing.T) {
 	if len(res.Removed) != 1 {
 		t.Errorf("removed = %v", res.Removed)
 	}
-	if n := res.Notes; n.Releases != 2 || len(n.Matches) != 3 || n.Matches[0].Key != "legacy.enabled" || n.Stats.InputTokens != 100 {
+	if len(res.Notes) != 1 {
+		t.Fatalf("notes = %+v", res.Notes)
+	}
+	if n := res.Notes[0]; n.Releases != 2 || len(n.Matches) != 3 || n.Matches[0].Key != "legacy.enabled" || n.Stats.InputTokens != 100 {
 		t.Errorf("notes = %+v", n)
 	}
 }
@@ -106,7 +109,7 @@ func TestNotesSkippedWithoutKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Release notes: skipped, TYPESAFE_API_KEY is not set") {
+	if !strings.Contains(out, "Release notes (app): skipped, TYPESAFE_API_KEY is not set") {
 		t.Errorf("output:\n%s", out)
 	}
 	if !strings.Contains(out, "Removed (1)") {
@@ -121,7 +124,7 @@ func TestNotesSkippedWhenAppVersionUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Release notes: skipped, appVersion did not change") {
+	if !strings.Contains(out, "Release notes (app): skipped, the version did not change") {
 		t.Errorf("output:\n%s", out)
 	}
 }
@@ -141,10 +144,30 @@ func TestNotesSkippedOnGitHubError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Release notes: skipped, github releases acme/missing page 1: 404 Not Found") {
+	if !strings.Contains(out, "Release notes (app): skipped, github releases acme/missing page 1: 404 Not Found") {
 		t.Errorf("output:\n%s", out)
 	}
 	if !strings.Contains(out, "Removed (1)") {
 		t.Errorf("diff lost on GitHub error:\n%s", out)
+	}
+}
+
+func TestChartNotes(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--chart-notes", "acme/app", "--chart-tag-prefix", "v")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Release notes (chart): acme/app 1.0.0 -> 2.0.0 (2 releases") {
+		t.Errorf("output:\n%s", out)
+	}
+
+	out, err = execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--chart-notes", "acme/app")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Release notes (chart): skipped, no releases of acme/app tagged mychart-<version> in (1.0.0, 2.0.0]") {
+		t.Errorf("empty range not reported as skipped:\n%s", out)
 	}
 }

@@ -48,8 +48,8 @@ func WriteText(w io.Writer, res Report) error {
 		fmt.Fprintf(&b, "\n%d new keys in the target version.\n", len(r.Added))
 	}
 	writeRender(&b, res.Render)
-	if res.Notes != nil {
-		writeNotes(&b, res.Notes)
+	for _, n := range res.Notes {
+		writeNotes(&b, n)
 	}
 
 	_, err := io.WriteString(w, b.String())
@@ -58,11 +58,11 @@ func WriteText(w io.Writer, res Report) error {
 
 func writeNotes(b *strings.Builder, n *Notes) {
 	if n.Skipped != "" {
-		fmt.Fprintf(b, "\nRelease notes: skipped, %s\n", n.Skipped)
+		fmt.Fprintf(b, "\nRelease notes (%s): skipped, %s\n", n.Source, n.Skipped)
 		return
 	}
-	fmt.Fprintf(b, "\nRelease notes: %s %s -> %s (%d releases, %d entries, %d questions)\n",
-		n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions)
+	fmt.Fprintf(b, "\nRelease notes (%s): %s %s -> %s (%d releases, %d entries, %d questions)\n",
+		n.Source, n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions)
 
 	groups := groupByKey(n.Matches, n.Threshold)
 	if len(groups) == 0 {

@@ -18,16 +18,19 @@ import (
 )
 
 type options struct {
-	repo         string
-	from         string
-	to           string
-	valueFiles   []string
-	output       string
-	appRepo      string
-	appTagPrefix string
-	threshold    float64
-	render       bool
-	failOn       []string
+	repo           string
+	from           string
+	to             string
+	valueFiles     []string
+	output         string
+	appRepo        string
+	appTagPrefix   string
+	threshold      float64
+	render         bool
+	failOn         []string
+	chartNotes     string
+	chartTagPrefix string
+	maxPages       int
 }
 
 var ErrFindings = errors.New("report has findings")
@@ -66,6 +69,9 @@ func NewRootCmd() *cobra.Command {
 	f.StringVarP(&o.output, "output", "o", "text", "output format: text or json")
 	f.StringVar(&o.appRepo, "app-repo", "", "GitHub owner/name of the app the chart ships, to check its release notes")
 	f.StringVar(&o.appTagPrefix, "app-tag-prefix", "", "prefix before the version in the app's release tags")
+	f.StringVar(&o.chartNotes, "chart-notes", "", "GitHub owner/name where the chart publishes its own releases, to check them")
+	f.StringVar(&o.chartTagPrefix, "chart-tag-prefix", "", "prefix before the version in the chart's release tags (default CHART-)")
+	f.IntVar(&o.maxPages, "max-pages", 40, "maximum pages of 100 GitHub releases to read per repo")
 	f.Float64Var(&o.threshold, "threshold", 0.5, "minimum probability for a release-note match to be shown")
 	f.StringSliceVar(&o.failOn, "fail-on", nil, "exit with code 2 if the report has any of: "+strings.Join(report.FailKinds, ", "))
 	f.BoolVar(&o.render, "render", true, "render both chart versions with your values and report if only the new one fails")
@@ -125,8 +131,8 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 	if o.render {
 		res.Render = report.NewRender(oldChart.renderErr, newChart.renderErr)
 	}
-	if o.appRepo != "" {
-		res.Notes, err = checkNotes(ctx, chart, o, oldChart.meta.AppVersion, newChart.meta.AppVersion, res.Report)
+	if sources := notesSources(chart, o, oldChart.meta.AppVersion, newChart.meta.AppVersion); len(sources) > 0 {
+		res.Notes, err = checkAllNotes(ctx, chart, o, sources, res.Report)
 		if err != nil {
 			return err
 		}
