@@ -30,10 +30,10 @@ case "$*" in
   "template "*)
     ;;
   *"--version 1.0.0"*)
-    printf 'replicas: 1\nport: 3100\nlegacy:\n  enabled: false\npodAnnotations: {}\n'
+    printf 'replicas: 1\nport: 3100\nlegacy:\n  enabled: false\nextraConfig: {}\n'
     ;;
   *"--version 2.0.0"*)
-    printf 'replicas: 1\nport: 3200\npodAnnotations: {}\nnewThing: true\n'
+    printf 'replicas: 1\nport: 3200\nextraConfig: {}\nnewThing: true\n'
     ;;
   *)
     echo "Error: chart version not found" >&2
@@ -52,7 +52,7 @@ func setup(t *testing.T) string {
 	t.Setenv("HELM_BIN", bin)
 
 	userValues := filepath.Join(dir, "values.yaml")
-	data := "legacy:\n  enabled: true\npodAnnotations:\n  team: tracing\n"
+	data := "legacy:\n  enabled: true\nextraConfig:\n  team: tracing\n"
 	if err := os.WriteFile(userValues, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestTextOutput(t *testing.T) {
 		"mychart 1.0.0 -> 2.0.0",
 		"  removed       legacy.enabled  no longer in the chart",
 		"\nCHECK\n  default       port  3100 -> 3200",
-		"  free-form     podAnnotations.team",
+		"  free-form     extraConfig.team",
 		"1 key added in 2.0.0. Use -o json to list them.",
 	} {
 		if !strings.Contains(out, want) {

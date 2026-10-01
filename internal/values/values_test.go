@@ -102,7 +102,7 @@ typoKey: 1
 
 	want := Report{
 		Removed:        []string{"processor.localBlocks.flushToStorage", "structuredConfig.overrides.max_traces"},
-		Freeform:       []string{`podAnnotations["prometheus.io/scrape"]`},
+		Standard:       []string{`podAnnotations["prometheus.io/scrape"]`},
 		Undeclared:     []string{"typoKey"},
 		DefaultChanged: []Change{{Path: "replicas", Old: 1, New: 2}},
 		Added:          []string{"newFeature"},
@@ -198,5 +198,48 @@ func TestTypeChangeIgnoresNilAndMissing(t *testing.T) {
 		if _, _, _, ok := typeChange(oldDefaults, newDefaults, segs); ok {
 			t.Errorf("typeChange(%v) reported a change", segs)
 		}
+	}
+}
+
+func TestCompareStandardBlocks(t *testing.T) {
+	defaults := mustParse(t, `
+resources: {}
+nodeSelector: {}
+ingress:
+  annotations: {}
+sidecar:
+  resources: {}
+structuredConfig: {}
+`)
+	user := mustParse(t, `
+resources:
+  limits:
+    cpu: 100m
+nodeSelector:
+  cloud.google.com/gke-spot: "true"
+ingress:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+sidecar:
+  limits:
+    cpu: 100m
+structuredConfig:
+  overrides:
+    max: 1
+`)
+	got := Compare(defaults, defaults, user)
+
+	wantStandard := []string{`ingress.annotations["kubernetes.io/ingress.class"]`, `nodeSelector["cloud.google.com/gke-spot"]`, "resources.limits.cpu"}
+	if !reflect.DeepEqual(got.Standard, wantStandard) {
+		t.Errorf("Standard = %q, want %q", got.Standard, wantStandard)
+	}
+	if !reflect.DeepEqual(got.Freeform, []string{"structuredConfig.overrides.max"}) {
+		t.Errorf("Freeform = %q", got.Freeform)
+	}
+	if !reflect.DeepEqual(got.Undeclared, []string{"sidecar.limits.cpu"}) {
+		t.Errorf("Undeclared = %q, a misplaced key must stay visible", got.Undeclared)
+	}
+	if blocks := StandardBlocks(got.Standard); !reflect.DeepEqual(blocks, []string{"annotations", "nodeSelector", "resources"}) {
+		t.Errorf("StandardBlocks = %q", blocks)
 	}
 }

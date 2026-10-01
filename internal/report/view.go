@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/match"
+	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
 const evidencePerRow = 2
@@ -136,6 +137,10 @@ func footer(res Report) []string {
 		}
 		out = append(out, fmt.Sprintf("Release notes (%s): %s %s -> %s, %d releases, %d entries, %d questions",
 			n.Source, n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions))
+	}
+	if n := len(res.Standard); n > 0 {
+		out = append(out, fmt.Sprintf("%d %s in standard Kubernetes blocks (%s) not listed. Use -o json to list them.",
+			n, plural(n, "key", "keys"), strings.Join(values.StandardBlocks(res.Standard), ", ")))
 	}
 	if n := len(res.Added); n > 0 {
 		out = append(out, fmt.Sprintf("%d %s added in %s. Use -o json to list them.", n, plural(n, "key", "keys"), res.To))

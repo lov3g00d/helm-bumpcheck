@@ -114,3 +114,17 @@ func TestStyle(t *testing.T) {
 		t.Errorf("plain red = %q", got)
 	}
 }
+
+func TestFooterSummarizesStandardKeys(t *testing.T) {
+	r := Report{Chart: "c", From: "1", To: "2", Report: values.Report{
+		Standard: []string{"resources.limits.cpu", "resources.requests.cpu", `nodeSelector["a"]`},
+	}}
+	v := build(r)
+	want := "3 keys in standard Kubernetes blocks (nodeSelector, resources) not listed. Use -o json to list them."
+	if len(v.Footer) != 1 || v.Footer[0] != want {
+		t.Errorf("footer = %q", v.Footer)
+	}
+	if v.Verdict != "Result: nothing in this upgrade affects the values you set" {
+		t.Errorf("verdict = %q", v.Verdict)
+	}
+}

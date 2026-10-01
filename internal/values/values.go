@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ type Report struct {
 	Removed        []string     `json:"removed"`
 	TypeChanged    []TypeChange `json:"typeChanged"`
 	Freeform       []string     `json:"freeform"`
+	Standard       []string     `json:"standard"`
 	Undeclared     []string     `json:"undeclared"`
 	DefaultChanged []Change     `json:"defaultChanged"`
 	Added          []string     `json:"added"`
@@ -115,16 +117,46 @@ func Path(segments []string) string {
 	return b.String()
 }
 
-func freeformAncestor(l Leaves, segments []string) bool {
+var standardBlocks = map[string]bool{
+	"resources":                 true,
+	"nodeselector":              true,
+	"tolerations":               true,
+	"affinity":                  true,
+	"securitycontext":           true,
+	"podsecuritycontext":        true,
+	"containersecuritycontext":  true,
+	"topologyspreadconstraints": true,
+}
+
+func isStandardBlock(name string) bool {
+	n := strings.ToLower(name)
+	return standardBlocks[n] || strings.HasSuffix(n, "annotations") || strings.HasSuffix(n, "labels")
+}
+
+func freeformBlock(l Leaves, segments []string) ([]string, bool) {
 	for i := len(segments) - 1; i > 0; i-- {
 		anc, ok := l[Path(segments[:i])]
 		if !ok {
 			continue
 		}
 		m, isMap := anc.Value.(map[string]any)
-		return isMap && len(m) == 0
+		return segments[:i], isMap && len(m) == 0
 	}
-	return false
+	return nil, false
+}
+
+func freeformAncestor(l Leaves, segments []string) bool {
+	_, ok := freeformBlock(l, segments)
+	return ok
+}
+
+func (r *Report) addFreeform(newL Leaves, leaf Leaf, path string) {
+	block, _ := freeformBlock(newL, leaf.Segments)
+	if len(block) > 0 && isStandardBlock(block[len(block)-1]) {
+		r.Standard = append(r.Standard, path)
+		return
+	}
+	r.Freeform = append(r.Freeform, path)
 }
 
 func Compare(oldDefaults, newDefaults, user map[string]any) Report {
@@ -147,18 +179,18 @@ func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 		case inNew:
 		case inOld:
 			if freeformAncestor(newL, leaf.Segments) {
-				r.Freeform = append(r.Freeform, p)
+				r.addFreeform(newL, leaf, p)
 			} else {
 				r.Removed = append(r.Removed, p)
 			}
 		case freeformAncestor(oldL, leaf.Segments):
 			if freeformAncestor(newL, leaf.Segments) {
-				r.Freeform = append(r.Freeform, p)
+				r.addFreeform(newL, leaf, p)
 			} else {
 				r.Removed = append(r.Removed, p)
 			}
 		case freeformAncestor(newL, leaf.Segments):
-			r.Freeform = append(r.Freeform, p)
+			r.addFreeform(newL, leaf, p)
 		default:
 			r.Undeclared = append(r.Undeclared, p)
 		}
@@ -190,6 +222,7 @@ func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 	sort.Slice(r.TypeChanged, func(i, j int) bool { return r.TypeChanged[i].Path < r.TypeChanged[j].Path })
 	sort.Strings(r.Removed)
 	sort.Strings(r.Freeform)
+	sort.Strings(r.Standard)
 	sort.Strings(r.Undeclared)
 	sort.Strings(r.Added)
 	sort.Slice(r.DefaultChanged, func(i, j int) bool { return r.DefaultChanged[i].Path < r.DefaultChanged[j].Path })
@@ -239,4 +272,21 @@ func typeChange(oldDefaults, newDefaults map[string]any, segments []string) ([]s
 		}
 	}
 	return nil, "", "", false
+}
+
+func StandardBlocks(paths []string) []string {
+	var names []string
+	for _, p := range paths {
+		name := strings.FieldsFunc(p, func(r rune) bool { return r == '.' || r == '[' })
+		for i := len(name) - 1; i >= 0; i-- {
+			if isStandardBlock(name[i]) {
+				if !slices.Contains(names, name[i]) {
+					names = append(names, name[i])
+				}
+				break
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
 }
