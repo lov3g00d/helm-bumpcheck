@@ -1,4 +1,4 @@
-package cli
+package report
 
 import (
 	"encoding/json"
@@ -14,16 +14,16 @@ const (
 	maxEntryLen = 120
 )
 
-func writeJSON(w io.Writer, res result) error {
+func WriteJSON(w io.Writer, res Report) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(res)
 }
 
-func writeText(w io.Writer, title string, res result) error {
+func WriteText(w io.Writer, res Report) error {
 	r := res.Report
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n", title)
+	fmt.Fprintf(&b, "%s %s -> %s\n", res.Chart, res.From, res.To)
 
 	changed := make([]string, len(r.DefaultChanged))
 	for i, c := range r.DefaultChanged {
@@ -49,7 +49,7 @@ func writeText(w io.Writer, title string, res result) error {
 	return err
 }
 
-func writeNotes(b *strings.Builder, n *notesResult) {
+func writeNotes(b *strings.Builder, n *Notes) {
 	if n.Skipped != "" {
 		fmt.Fprintf(b, "\nRelease notes: skipped, %s\n", n.Skipped)
 		return

@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
+	"github.com/lov3g00d/helm-bumpcheck/internal/report"
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
@@ -22,11 +23,6 @@ type options struct {
 	appRepo      string
 	appTagPrefix string
 	threshold    float64
-}
-
-type result struct {
-	values.Report
-	Notes *notesResult `json:"notes,omitempty"`
 }
 
 type chartInfo struct {
@@ -103,7 +99,7 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 		return err
 	}
 
-	res := result{Report: values.Compare(oldChart.defaults, newChart.defaults, user)}
+	res := report.Report{Chart: chart, From: o.from, To: o.to, Report: values.Compare(oldChart.defaults, newChart.defaults, user)}
 	if o.appRepo != "" {
 		res.Notes, err = checkNotes(ctx, chart, o, oldChart.meta.AppVersion, newChart.meta.AppVersion, res.Report)
 		if err != nil {
@@ -112,9 +108,9 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 	}
 
 	if o.output == "json" {
-		return writeJSON(w, res)
+		return report.WriteJSON(w, res)
 	}
-	return writeText(w, fmt.Sprintf("%s %s -> %s", chart, o.from, o.to), res)
+	return report.WriteText(w, res)
 }
 
 func fetchChart(ctx context.Context, h helm.Runner, c helm.Chart, withMeta bool) (chartInfo, error) {

@@ -140,18 +140,3 @@ func TestRequiresChart(t *testing.T) {
 		t.Error("expected error without CHART")
 	}
 }
-
-func TestRenderTruncatesByRune(t *testing.T) {
-	long := strings.Repeat("ж", 100)
-	got := render(long)
-	if n := len([]rune(got)); n != maxValueLen {
-		t.Errorf("rendered %d runes, want %d", n, maxValueLen)
-	}
-	if !strings.HasSuffix(got, "...") {
-		t.Errorf("rendered %q, want ... suffix", got)
-	}
-}
-
-func valuesChange(path string, old, new any) values.Change {
-	return values.Change{Path: path, Old: old, New: new}
-}

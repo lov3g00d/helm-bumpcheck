@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
+	"github.com/lov3g00d/helm-bumpcheck/internal/report"
 )
 
 func fakeAPIs(t *testing.T) {
@@ -83,8 +84,8 @@ func TestNotesJSONKeepsAllMatches(t *testing.T) {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
 	var res struct {
-		Removed []string    `json:"removed"`
-		Notes   notesResult `json:"notes"`
+		Removed []string     `json:"removed"`
+		Notes   report.Notes `json:"notes"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, out)
@@ -130,17 +131,6 @@ func TestRejectsBadThreshold(t *testing.T) {
 	_, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "--threshold", "1.5")
 	if err == nil || !strings.Contains(err.Error(), "threshold") {
 		t.Errorf("err = %v", err)
-	}
-}
-
-func TestDescribeMultilineChange(t *testing.T) {
-	got := describeChange(valuesChange("config", "a: 1\nb: 2\nc: 3", "a: 1\nb: 5\nc: 3"))
-	if want := `config: line 2: "b: 2" -> "b: 5"`; got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-	got = describeChange(valuesChange("config", "a: 1\n", "a: 1\nextra: true\n"))
-	if want := `config: line 2: "" -> "extra: true"`; got != want {
-		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

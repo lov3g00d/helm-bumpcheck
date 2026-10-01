@@ -9,23 +9,12 @@ import (
 	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
 	"github.com/lov3g00d/helm-bumpcheck/internal/match"
 	"github.com/lov3g00d/helm-bumpcheck/internal/notes"
+	"github.com/lov3g00d/helm-bumpcheck/internal/report"
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
-type notesResult struct {
-	Repo      string        `json:"repo"`
-	From      string        `json:"from"`
-	To        string        `json:"to"`
-	Releases  int           `json:"releases"`
-	Entries   int           `json:"entries"`
-	Threshold float64       `json:"threshold"`
-	Stats     match.Stats   `json:"stats"`
-	Matches   []match.Match `json:"matches"`
-	Skipped   string        `json:"skipped,omitempty"`
-}
-
-func checkNotes(ctx context.Context, chart string, o options, fromApp, toApp string, r values.Report) (*notesResult, error) {
-	res := &notesResult{Repo: o.appRepo, From: fromApp, To: toApp, Threshold: o.threshold}
+func checkNotes(ctx context.Context, chart string, o options, fromApp, toApp string, r values.Report) (*report.Notes, error) {
+	res := &report.Notes{Repo: o.appRepo, From: fromApp, To: toApp, Threshold: o.threshold}
 	keys := slices.Concat(r.Removed, r.Freeform, r.Undeclared)
 
 	switch {
@@ -63,7 +52,7 @@ func checkNotes(ctx context.Context, chart string, o options, fromApp, toApp str
 	return res, nil
 }
 
-func skipOnError(ctx context.Context, res *notesResult, err error) (*notesResult, error) {
+func skipOnError(ctx context.Context, res *report.Notes, err error) (*report.Notes, error) {
 	if ctx.Err() != nil {
 		return nil, err
 	}
