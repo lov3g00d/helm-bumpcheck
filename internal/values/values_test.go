@@ -211,11 +211,19 @@ port: "9090"
 	}
 }
 
+func TestTypeChangeFromNullDefaultUsesTheUserKind(t *testing.T) {
+	got := Compare(mustParse(t, "x: ~\n"), mustParse(t, "x:\n  y: 1\n"), mustParse(t, "x: 5\n"), Dependencies{})
+	want := []TypeChange{{Path: "x", Old: "scalar", New: "map", Keys: []string{"x"}}}
+	if !reflect.DeepEqual(got.TypeChanged, want) || len(got.Removed) != 0 {
+		t.Errorf("TypeChanged = %+v, Removed = %q; want %+v and nothing removed", got.TypeChanged, got.Removed, want)
+	}
+}
+
 func TestTypeChangeIgnoresNilAndMissing(t *testing.T) {
 	oldDefaults := mustParse(t, "a:\n  b:\nc: 1\n")
 	newDefaults := mustParse(t, "a:\n  b: [1]\n")
 	for _, segs := range [][]string{{"a", "b"}, {"c"}, {"x", "y"}} {
-		if _, _, _, ok := typeChange(oldDefaults, newDefaults, Leaf{Segments: segs, Value: 1}); ok {
+		if _, _, _, ok := typeChange(oldDefaults, newDefaults, Leaf{Segments: segs, Value: []any{2}}); ok {
 			t.Errorf("typeChange(%v) reported a change", segs)
 		}
 	}
@@ -507,6 +515,13 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			old:  "image: nginx\n",
 			new:  "image:\n  repository: nginx\n",
 			user: "image: null\n",
+		},
+		{
+			name:        "null default that becomes a map under a user scalar",
+			old:         "x: ~\n",
+			new:         "x:\n  y: 1\n",
+			user:        "x: 5\n",
+			typeChanged: []string{"x"},
 		},
 		{
 			name:      "standard block under a subchart stays standard",

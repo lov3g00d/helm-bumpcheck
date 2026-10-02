@@ -460,6 +460,9 @@ func typeChange(oldDefaults, newDefaults map[string]any, leaf Leaf) ([]string, s
 			return nil, "", "", false
 		}
 		oldKind, newKind := kind(o), kind(n)
+		if oldKind == "" && i == len(segments) {
+			oldKind = kind(leaf.Value)
+		}
 		if oldKind == "" || newKind == "" {
 			return nil, "", "", false
 		}
