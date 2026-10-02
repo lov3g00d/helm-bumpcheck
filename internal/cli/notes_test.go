@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -333,5 +337,114 @@ func TestRejectsBadMaxPages(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "--max-pages must be at least 1") {
 			t.Errorf("--max-pages %s: err = %v", v, err)
 		}
+	}
+}
+
+func TestNotesSkippedOnJevError(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	var jevCalls atomic.Int32
+	jv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jevCalls.Add(1)
+		http.Error(w, "invalid api key", http.StatusUnauthorized)
+	}))
+	t.Cleanup(jv.Close)
+	t.Setenv(jev.BaseURLEnv, jv.URL)
+
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app", "--fail-on", "removed")
+	if !errors.Is(err, ErrFindings) {
+		t.Fatalf("err = %v, want only the --fail-on findings\n%s", err, out)
+	}
+	for _, want := range []string{
+		"Release notes (app): skipped, ",
+		"typesafe api: 401 Unauthorized: invalid api key",
+		"  removed       legacy.enabled  no longer in the chart",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+
+	out, err = execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app", "-o", "json")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	var res struct {
+		Notes []report.Notes `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if len(res.Notes) != 1 || !strings.Contains(res.Notes[0].Skipped, "401 Unauthorized") || len(res.Notes[0].Matches) != 0 {
+		t.Errorf("notes = %+v, want skipped with the Jev error", res.Notes)
+	}
+	if jevCalls.Load() == 0 {
+		t.Error("Jev was never called")
+	}
+}
+
+func TestNotesCancelledDuringJevStopsTheRun(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	jv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(jv.Close)
+	t.Setenv(jev.BaseURLEnv, jv.URL)
+
+	cmd := NewRootCmd("test")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app"})
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("a cancelled run wrote a report:\n%s", out.String())
+	}
+}
+
+func TestNotesSkippedWhenNoKeysNeedChecking(t *testing.T) {
+	setup(t)
+	fakeAPIs(t)
+	userValues := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(userValues, []byte("replicas: 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Release notes (app): skipped, no keys need checking") {
+		t.Errorf("output:\n%s", out)
+	}
+}
+
+func TestDiffCancelledDuringJevStopsTheRun(t *testing.T) {
+	g, base, head := bumpHistory(t)
+	fakeAPIs(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	jv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(jv.Close)
+	t.Setenv(jev.BaseURLEnv, jv.URL)
+
+	cmd := NewRootCmd("test")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"diff", "-C", g.dir, "--base", base, "--head", head, "--notes"})
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("a cancelled run wrote a report:\n%s", out.String())
 	}
 }
