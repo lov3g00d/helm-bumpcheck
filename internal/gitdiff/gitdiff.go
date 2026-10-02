@@ -39,6 +39,7 @@ type Chart struct {
 type Skip struct {
 	Dir    string
 	Reason string
+	Failed bool
 }
 
 func (r Repo) git(ctx context.Context, args ...string) ([]byte, error) {
@@ -164,15 +165,15 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			continue
 		}
 
-		before, err := r.chart(ctx, baseSHA, dir, baseFiles)
+		after, err := r.chart(ctx, headSHA, dir, headFiles)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, nil, err
 			}
-			skips = append(skips, Skip{Dir: dir, Reason: err.Error()})
+			skips = append(skips, Skip{Dir: dir, Reason: err.Error(), Failed: true})
 			continue
 		}
-		after, err := r.chart(ctx, headSHA, dir, headFiles)
+		before, err := r.chart(ctx, baseSHA, dir, baseFiles)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, nil, err

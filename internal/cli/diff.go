@@ -73,7 +73,11 @@ func runDiff(ctx context.Context, w io.Writer, o options, do diffOptions) error 
 
 	batch := report.Batch{Base: do.base, Head: do.head, Bumped: len(charts), Reports: []report.Report{}, Skipped: []report.Skip{}, Failed: []report.Skip{}}
 	for _, s := range skips {
-		batch.Skipped = append(batch.Skipped, report.Skip{Path: s.Dir, Reason: s.Reason})
+		if s.Failed {
+			batch.Failed = append(batch.Failed, report.Skip{Path: s.Dir, Reason: s.Reason})
+		} else {
+			batch.Skipped = append(batch.Skipped, report.Skip{Path: s.Dir, Reason: s.Reason})
+		}
 	}
 
 	for i, c := range charts {

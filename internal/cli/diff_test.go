@@ -231,6 +231,25 @@ func TestDiffFailedChartExitsWithError(t *testing.T) {
 	}
 }
 
+func TestDiffFailsWhenTheHeadChartCannotBeRead(t *testing.T) {
+	g := newGitFixture(t)
+	g.write(map[string]string{
+		"charts/app/Chart.yaml":       "apiVersion: v2\nname: app\nversion: 1.0.0\n",
+		"charts/app/values-prod.yaml": "a: 1\n",
+	})
+	base := g.commit("base")
+	g.write(map[string]string{"charts/app/Chart.yaml": "apiVersion: v2\nname: app\nversion: [2.0.0\n"})
+	head := g.commit("break Chart.yaml")
+
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--fail-on", "removed")
+	if err == nil || errors.Is(err, ErrFindings) || !strings.Contains(err.Error(), "1 chart could not be analyzed") {
+		t.Fatalf("err = %v, want an analysis error\n%s", err, out)
+	}
+	if !strings.Contains(out, "Failed\n  charts/app: charts/app at "+head+": parse Chart.yaml") || strings.Contains(out, "Skipped") {
+		t.Errorf("broken head chart not reported as failed:\n%s", out)
+	}
+}
+
 func TestDiffReadsDuplicateKeysLikeHelm(t *testing.T) {
 	g := newGitFixture(t)
 	g.write(map[string]string{

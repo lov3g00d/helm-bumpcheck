@@ -107,7 +107,7 @@ helm diff local old/tempo new/tempo -f values.yaml
 | Code | Meaning |
 |---|---|
 | 0 | no finding matched `--fail-on` |
-| 1 | error, or a chart in `diff` could not be analyzed |
+| 1 | error, or a chart in `diff` could not be analyzed, including one whose `Chart.yaml` or lock file in `--head` does not parse |
 | 2 | a finding matched `--fail-on removed,type,render,default` |
 
 Release-note matches never fail a run; their probabilities vary slightly between calls.

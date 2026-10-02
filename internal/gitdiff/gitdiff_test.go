@@ -159,10 +159,15 @@ func TestChangedChartsEdgeCases(t *testing.T) {
 	r.write("charts/dep/Chart.yaml", chartYAML("dep", "1.0.0"))
 	r.write("café/Chart.yaml", chartYAML("cafe", "1.0.0"))
 	r.write("broken/Chart.yaml", chartYAML("broken", "1.0.0"))
+	r.write("badlock/Chart.yaml", chartYAML("badlock", "1.0.0"))
+	r.write("badlock/Chart.lock", "dependencies: []\n")
+	r.write("fixed/Chart.yaml", "name: [unclosed\n")
 	base := r.commit("base")
 	r.write("charts/dep/Chart.yaml", chartYAML("dep", "2.0.0"))
 	r.write("café/Chart.yaml", chartYAML("cafe", "2.0.0"))
 	r.write("broken/Chart.yaml", "name: [unclosed\n")
+	r.write("badlock/Chart.lock", "dependencies: [unclosed\n")
+	r.write("fixed/Chart.yaml", chartYAML("fixed", "1.0.0"))
 	head := r.commit("head")
 
 	charts, skips, err := Repo{Dir: r.dir}.ChangedCharts(context.Background(), base, head)
@@ -172,8 +177,21 @@ func TestChangedChartsEdgeCases(t *testing.T) {
 	if len(charts) != 1 || charts[0].Dir != "café" || charts[0].ToVersion != "2.0.0" {
 		t.Errorf("charts = %+v, want only the non-ASCII chart; the root chart's subchart must be nested", charts)
 	}
-	if len(skips) != 1 || skips[0].Dir != "broken" || !strings.Contains(skips[0].Reason, "parse Chart.yaml") {
-		t.Errorf("skips = %+v, want the malformed chart skipped", skips)
+	want := []struct {
+		dir, reason string
+		failed      bool
+	}{
+		{"badlock", "parse lock file", true},
+		{"broken", "parse Chart.yaml", true},
+		{"fixed", "parse Chart.yaml", false},
+	}
+	if len(skips) != len(want) {
+		t.Fatalf("skips = %+v, want %d", skips, len(want))
+	}
+	for i, w := range want {
+		if s := skips[i]; s.Dir != w.dir || !strings.Contains(s.Reason, w.reason) || s.Failed != w.failed {
+			t.Errorf("skip %d = %+v, want %s with %q, failed %v", i, s, w.dir, w.reason, w.failed)
+		}
 	}
 }
 
