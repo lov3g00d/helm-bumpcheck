@@ -235,7 +235,15 @@ func standardAncestor(defaults map[string]any, segments []string) bool {
 	return false
 }
 
-func (r *Report) classify(oldDefaults, newDefaults map[string]any, leaf Leaf, path string, inOld bool) {
+func (r *Report) remove(path string, subchart bool) {
+	if subchart {
+		r.Undeclared = append(r.Undeclared, path)
+		return
+	}
+	r.Removed = append(r.Removed, path)
+}
+
+func (r *Report) classify(oldDefaults, newDefaults map[string]any, leaf Leaf, path string, inOld, subchart bool) {
 	segs := leaf.Segments
 	if isOpen(leaf.Value) {
 		_, inNewTree := lookup(newDefaults, segs)
@@ -252,7 +260,7 @@ func (r *Report) classify(oldDefaults, newDefaults map[string]any, leaf Leaf, pa
 		if _, open := openBlock(newDefaults, segs); open {
 			r.Freeform = append(r.Freeform, path)
 		} else {
-			r.Removed = append(r.Removed, path)
+			r.remove(path, subchart)
 		}
 		return
 	}
@@ -260,7 +268,7 @@ func (r *Report) classify(oldDefaults, newDefaults map[string]any, leaf Leaf, pa
 		if v, ok := lookup(newDefaults, block); ok && isMapOrNil(v) {
 			r.Freeform = append(r.Freeform, path)
 		} else {
-			r.Removed = append(r.Removed, path)
+			r.remove(path, subchart)
 		}
 		return
 	}
@@ -271,7 +279,7 @@ func (r *Report) classify(oldDefaults, newDefaults map[string]any, leaf Leaf, pa
 	r.Undeclared = append(r.Undeclared, path)
 }
 
-func Compare(oldDefaults, newDefaults, user map[string]any) Report {
+func Compare(oldDefaults, newDefaults, user map[string]any, subcharts []string) Report {
 	oldL, newL, userL := Flatten(oldDefaults), Flatten(newDefaults), Flatten(user)
 	var r Report
 	typed := map[string]*TypeChange{}
@@ -289,7 +297,8 @@ func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 			continue
 		}
 		_, inOld := oldL[p]
-		r.classify(oldDefaults, newDefaults, leaf, p, inOld)
+		subchart := leaf.Segments[0] == "global" || slices.Contains(subcharts, leaf.Segments[0])
+		r.classify(oldDefaults, newDefaults, leaf, p, inOld, subchart)
 	}
 
 	for p, o := range oldL {

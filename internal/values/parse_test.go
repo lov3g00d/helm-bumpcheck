@@ -96,7 +96,7 @@ func TestLoadFilesMergesIntegerKeyedMaps(t *testing.T) {
 }
 
 func TestCompareReportMarshalsIntegerKeyedDefaults(t *testing.T) {
-	r := Compare(mustParse(t, "tcp:\n  9000: a\n"), mustParse(t, "tcp:\n  9000: b\n"), map[string]any{})
+	r := Compare(mustParse(t, "tcp:\n  9000: a\n"), mustParse(t, "tcp:\n  9000: b\n"), map[string]any{}, nil)
 	if _, err := json.Marshal(r); err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}

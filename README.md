@@ -24,7 +24,7 @@ For the keys in your values files, against the old and new chart:
 - **type changed**: a block you set changed between map, list and scalar.
 - **render**: the new chart fails `helm template` with your values while the old one rendered.
 - **default changed**: a default you rely on changed.
-- **free-form and undeclared**: keys the chart cannot vouch for, such as app config passed through a `config: {}` block.
+- **free-form and undeclared**: keys the chart cannot vouch for, such as app config passed through a `config: {}` block, or keys under a subchart or `global` that the parent chart does not declare.
 - **release notes** (optional): which release-note entries concern those keys, judged by [TypeSafe Jev](https://docs.typesafe.ai).
 
 Keys under standard Kubernetes blocks (`resources`, `nodeSelector`, annotations, labels) are summarized, not listed.

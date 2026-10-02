@@ -98,7 +98,7 @@ structuredConfig:
 typoKey: 1
 `)
 
-	got := Compare(oldDefaults, newDefaults, user)
+	got := Compare(oldDefaults, newDefaults, user, nil)
 
 	want := Report{
 		Removed:        []string{"processor.localBlocks.flushToStorage", "structuredConfig.overrides.max_traces"},
@@ -117,7 +117,7 @@ func TestCompareFreeformOnlyInNewChart(t *testing.T) {
 	newDefaults := mustParse(t, "metricsGenerator:\n  enabled: false\n  processor: {}\n")
 	user := mustParse(t, "metricsGenerator:\n  processor:\n    local_blocks:\n      flush_to_storage: true\n")
 
-	got := Compare(oldDefaults, newDefaults, user)
+	got := Compare(oldDefaults, newDefaults, user, nil)
 	if want := []string{"metricsGenerator.processor.local_blocks.flush_to_storage"}; !reflect.DeepEqual(got.Freeform, want) {
 		t.Errorf("Freeform = %v, want %v", got.Freeform, want)
 	}
@@ -170,7 +170,7 @@ configuration:
 tolerations: []
 port: "9090"
 `)
-	got := Compare(oldDefaults, newDefaults, user)
+	got := Compare(oldDefaults, newDefaults, user, nil)
 
 	want := []TypeChange{
 		{Path: "configuration.backupStorageLocation", Old: "map", New: "list", Keys: []string{
@@ -227,7 +227,7 @@ structuredConfig:
   overrides:
     max: 1
 `)
-	got := Compare(defaults, defaults, user)
+	got := Compare(defaults, defaults, user, nil)
 
 	wantStandard := []string{`ingress.annotations["kubernetes.io/ingress.class"]`, `nodeSelector["cloud.google.com/gke-spot"]`, "resources.limits.cpu"}
 	if !reflect.DeepEqual(got.Standard, wantStandard) {
@@ -250,7 +250,7 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 		old, new, user              string
 		removed, freeform, standard []string
 		undeclared, typeChanged     []string
-		defaultChanged              []string
+		defaultChanged, subcharts   []string
 	}{
 		{
 			name:     "free-form block that gains defaults is not removed",
@@ -369,10 +369,64 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			undeclared:     []string{"ports.8080"},
 			defaultChanged: []string{"ports.80"},
 		},
+		{
+			name:       "subchart override dropped by the parent is undeclared",
+			old:        "postgresql:\n  enabled: true\n  auth:\n    username: app\n",
+			new:        "postgresql:\n  enabled: true\n",
+			user:       "postgresql:\n  auth:\n    username: me\n",
+			subcharts:  []string{"postgresql"},
+			undeclared: []string{"postgresql.auth.username"},
+		},
+		{
+			name:       "subchart block dropped by the parent is undeclared",
+			old:        "db:\n  auth:\n    username: app\n",
+			new:        "other: 1\n",
+			user:       "db:\n  auth:\n    username: me\n",
+			subcharts:  []string{"db"},
+			undeclared: []string{"db.auth.username"},
+		},
+		{
+			name:       "open subchart block dropped by the parent is undeclared",
+			old:        "db: {}\n",
+			new:        "other: 1\n",
+			user:       "db:\n  extra: 1\n",
+			subcharts:  []string{"db"},
+			undeclared: []string{"db.extra"},
+		},
+		{
+			name:     "global key under an open global block is free-form",
+			old:      "global:\n  imageRegistry: docker.io\n",
+			new:      "global: {}\n",
+			user:     "global:\n  imageRegistry: mirror.local\n",
+			freeform: []string{"global.imageRegistry"},
+		},
+		{
+			name:       "global key dropped by the parent is undeclared",
+			old:        "global:\n  imageRegistry: docker.io\n",
+			new:        "replicas: 1\n",
+			user:       "global:\n  imageRegistry: mirror.local\n",
+			undeclared: []string{"global.imageRegistry"},
+		},
+		{
+			name:      "key under a dropped dependency is removed",
+			old:       "redis:\n  auth:\n    enabled: true\n",
+			new:       "replicas: 1\n",
+			user:      "redis:\n  auth:\n    enabled: false\n",
+			subcharts: []string{"postgresql"},
+			removed:   []string{"redis.auth.enabled"},
+		},
+		{
+			name:      "standard block under a subchart stays standard",
+			old:       "postgresql:\n  resources: {}\n",
+			new:       "postgresql:\n  resources: {}\n",
+			user:      "postgresql:\n  resources:\n    limits:\n      cpu: 1\n",
+			subcharts: []string{"postgresql"},
+			standard:  []string{"postgresql.resources.limits.cpu"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user))
+			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user), tt.subcharts)
 			check := func(field string, got, want []string) {
 				if len(got) == 0 && len(want) == 0 {
 					return

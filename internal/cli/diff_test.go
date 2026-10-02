@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -302,5 +303,37 @@ func TestDiffHeadlineCountsSkippedAndFailedBumps(t *testing.T) {
 	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", depOnly, "-o", "markdown")
 	if err != nil || !strings.Contains(out, "- `charts/umbrella`: dependency changes not analyzed: redis 19.0.0 -&gt; 20.0.0\n") {
 		t.Errorf("err %v, dependency skip missing from markdown:\n%s", err, out)
+	}
+}
+
+func TestDiffKeysUnderSubchartsAreNotRemoved(t *testing.T) {
+	g := newGitFixture(t)
+	g.write(map[string]string{
+		"charts/umbrella/Chart.yaml":        "apiVersion: v1\nname: umbrella\nversion: 1.0.0\n",
+		"charts/umbrella/requirements.yaml": "dependencies:\n  - name: postgresql\n    version: 12.0.0\n",
+		"charts/umbrella/values.yaml":       "postgresql:\n  enabled: true\n  auth:\n    username: app\nlegacy: true\n",
+		"charts/umbrella/values_prod.yaml":  "postgresql:\n  auth:\n    username: prod\nlegacy: false\n",
+	})
+	base := g.commit("base")
+	g.write(map[string]string{
+		"charts/umbrella/Chart.yaml":  "apiVersion: v1\nname: umbrella\nversion: 1.1.0\n",
+		"charts/umbrella/values.yaml": "postgresql:\n  enabled: true\n",
+	})
+	head := g.commit("bump")
+
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "-o", "json")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	var b report.Batch
+	if err := json.Unmarshal([]byte(out), &b); err != nil || len(b.Reports) != 1 {
+		t.Fatalf("reports: %v\n%s", err, out)
+	}
+	r := b.Reports[0]
+	if !slices.Equal(r.Removed, []string{"legacy"}) || !slices.Equal(r.Undeclared, []string{"postgresql.auth.username"}) {
+		t.Errorf("removed = %q, undeclared = %q", r.Removed, r.Undeclared)
+	}
+	if !slices.Equal(r.Dependencies, []string{"postgresql"}) {
+		t.Errorf("dependencies = %q", r.Dependencies)
 	}
 }

@@ -126,11 +126,12 @@ func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, old
 	if err != nil {
 		return report.Report{}, err
 	}
+	subcharts := cs.new.meta.DependencyNames()
 	res := report.Report{
 		Chart: cs.spec.name, From: cs.spec.from, To: cs.spec.to,
 		AppFrom: cs.old.meta.AppVersion, AppTo: cs.new.meta.AppVersion,
-		Dependencies: cs.new.meta.DependencyNames(),
-		Report:       values.Compare(cs.old.defaults, cs.new.defaults, user),
+		Dependencies: subcharts,
+		Report:       values.Compare(cs.old.defaults, cs.new.defaults, user, subcharts),
 	}
 
 	if o.render {
