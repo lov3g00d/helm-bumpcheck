@@ -1,2 +1,2 @@
 #!/bin/sh
-exec "$HELM_PLUGIN_DIR/bin/helm-bumpcheck" __complete "$@"
+exec "$HELM_PLUGIN_DIR/bin/helm-bumpcheck" __complete "$@" 2>/dev/null

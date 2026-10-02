@@ -51,7 +51,9 @@ TypeSafe Jev which release-note entries concern those keys.
 Environment:
   TYPESAFE_API_KEY   enables release-note matching
   TYPESAFE_MODEL     Jev model, default jev-1.13.0
+  TYPESAFE_BASE_URL  TypeSafe API endpoint
   GITHUB_TOKEN       raises the GitHub rate limit (GH_TOKEN also works)
+  GITHUB_API_URL     GitHub API endpoint, for GitHub Enterprise
   HELM_BIN           helm binary to use, set by helm for plugins
   NO_COLOR           disables colour in the text report when set and not empty
 
@@ -65,7 +67,7 @@ const rootExample = `  helm bumpcheck tempo --repo https://grafana.github.io/hel
 func NewRootCmd(version string) *cobra.Command {
 	o := options{userAgent: "helm-bumpcheck/" + version}
 	cmd := &cobra.Command{
-		Use:           commandName() + " CHART --from VERSION --to VERSION [-f values.yaml]...",
+		Use:           "helm-bumpcheck CHART --from VERSION --to VERSION [-f values.yaml]...",
 		Short:         "Show how a chart upgrade affects the values you set",
 		Long:          rootLong,
 		Example:       rootExample,
@@ -79,6 +81,10 @@ func NewRootCmd(version string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd.Context(), cmd.OutOrStdout(), args[0], o)
 		},
+	}
+
+	if os.Getenv("HELM_PLUGIN_NAME") != "" {
+		cmd.Annotations = map[string]string{cobra.CommandDisplayNameAnnotation: "helm bumpcheck"}
 	}
 
 	f := cmd.Flags()
@@ -107,13 +113,6 @@ func NewRootCmd(version string) *cobra.Command {
 
 	cmd.AddCommand(newDiffCmd(&o))
 	return cmd
-}
-
-func commandName() string {
-	if os.Getenv("HELM_PLUGIN_NAME") != "" {
-		return "helm bumpcheck"
-	}
-	return "helm-bumpcheck"
 }
 
 func run(ctx context.Context, w io.Writer, chart string, o options) error {
