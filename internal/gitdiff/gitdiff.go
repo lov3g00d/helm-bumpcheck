@@ -1,11 +1,10 @@
 package gitdiff
 
 import (
-	"archive/tar"
+	"bufio"
 	"bytes"
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -14,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +47,9 @@ func (r Repo) git(ctx context.Context, args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
@@ -63,7 +66,7 @@ func (r Repo) MergeBase(ctx context.Context, a, b string) (string, error) {
 }
 
 func (r Repo) files(ctx context.Context, rev string) (map[string]bool, error) {
-	out, err := r.git(ctx, "ls-tree", "-r", "-z", "--name-only", rev)
+	out, err := r.git(ctx, "ls-tree", "-r", "-z", "--full-tree", "--name-only", rev)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +138,7 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 		return nil, nil, err
 	}
 
-	out, err := r.git(ctx, "diff", "-z", "--name-only", "--no-renames", baseSHA, headSHA)
+	out, err := r.git(ctx, "diff-tree", "-r", "-z", "--name-only", "--no-renames", baseSHA, headSHA)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -286,57 +289,112 @@ func orNone(s string) string {
 	return cmp.Or(s, "(none)")
 }
 
+type blob struct {
+	oid  string
+	path string
+	mode os.FileMode
+}
+
 func (r Repo) Extract(ctx context.Context, rev, dir, dest string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "archive", "--format=tar", rev, "--", dir)
-	cmd.WaitDelay = waitDelay
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	stdout, err := cmd.StdoutPipe()
+	out, err := r.git(ctx, "ls-tree", "-r", "-z", "--full-tree", rev, "--", dir)
 	if err != nil {
 		return "", err
 	}
-	if err := cmd.Start(); err != nil {
+	var blobs []blob
+	for _, entry := range splitNUL(out) {
+		info, name, ok := strings.Cut(entry, "\t")
+		fields := strings.Fields(info)
+		if !ok || len(fields) != 3 {
+			return "", fmt.Errorf("git ls-tree %s: unexpected entry %q", rev, entry)
+		}
+		var mode os.FileMode
+		switch fields[0] {
+		case "100644":
+			mode = 0o644
+		case "100755":
+			mode = 0o755
+		default:
+			continue
+		}
+		blobs = append(blobs, blob{oid: fields[2], path: name, mode: mode})
+	}
+	if len(blobs) == 0 {
+		return "", fmt.Errorf("no files under %s at %s", dir, rev)
+	}
+	if err := r.writeBlobs(ctx, blobs, dest); err != nil {
 		return "", err
-	}
-
-	extractErr := untar(stdout, dest)
-	if extractErr != nil {
-		_, _ = io.Copy(io.Discard, stdout)
-	}
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("git archive %s %s: %w: %s", rev, dir, err, strings.TrimSpace(stderr.String()))
-	}
-	if extractErr != nil {
-		return "", extractErr
 	}
 	return filepath.Join(dest, filepath.FromSlash(dir)), nil
 }
 
-func untar(r io.Reader, dest string) error {
-	tr := tar.NewReader(r)
-	for {
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			return nil
+func (r Repo) writeBlobs(ctx context.Context, blobs []blob, dest string) error {
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "cat-file", "--batch")
+	cmd.WaitDelay = waitDelay
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	go func() {
+		w := bufio.NewWriter(stdin)
+		for _, b := range blobs {
+			if _, err := fmt.Fprintln(w, b.oid); err != nil {
+				break
+			}
 		}
+		_ = w.Flush()
+		_ = stdin.Close()
+	}()
+
+	readErr := readBlobs(bufio.NewReader(stdout), blobs, dest)
+	if readErr != nil {
+		_, _ = io.Copy(io.Discard, stdout)
+	}
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("git cat-file --batch: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return readErr
+}
+
+func readBlobs(br *bufio.Reader, blobs []blob, dest string) error {
+	for _, b := range blobs {
+		header, err := br.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("git cat-file %s: %w", b.oid, err)
+		}
+		fields := strings.Fields(header)
+		if len(fields) != 3 || fields[0] != b.oid || fields[1] != "blob" {
+			return fmt.Errorf("git cat-file %s: unexpected header %q", b.oid, strings.TrimSpace(header))
+		}
+		size, err := strconv.ParseInt(fields[2], 10, 64)
+		if err != nil {
+			return fmt.Errorf("git cat-file %s: bad size %q", b.oid, fields[2])
+		}
+		target, err := safeJoin(dest, b.path)
 		if err != nil {
 			return err
 		}
-		target, err := safeJoin(dest, hdr.Name)
-		if err != nil {
+		body := &io.LimitedReader{R: br, N: size}
+		if err := writeFile(target, body, b.mode); err != nil {
 			return err
 		}
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := writeFile(target, tr, os.FileMode(hdr.Mode).Perm()); err != nil {
-				return err
-			}
+		if lf, err := br.ReadByte(); body.N != 0 || err != nil || lf != '\n' {
+			return fmt.Errorf("git cat-file %s: truncated object", b.oid)
 		}
 	}
+	return nil
 }
 
 func writeFile(target string, r io.Reader, mode os.FileMode) error {
@@ -358,7 +416,7 @@ func safeJoin(dest, name string) (string, error) {
 	target := filepath.Join(dest, filepath.FromSlash(name))
 	rel, err := filepath.Rel(dest, target)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("archive entry %q escapes %s", name, dest)
+		return "", fmt.Errorf("path %q escapes %s", name, dest)
 	}
 	return target, nil
 }

@@ -37,7 +37,7 @@ func newDiffCmd(o *options) *cobra.Command {
 --base and --head, and check each one against every values file in its
 directory. Charts whose dependencies changed without a version bump are
 listed as skipped. Nothing in the repository is modified; both revisions
-are read with git archive.`,
+are read straight from git objects, so .gitattributes has no effect.`,
 		Example: `  helm bumpcheck diff --base origin/main
   helm bumpcheck diff --base origin/main -o markdown --fail-on removed,type,render
   helm bumpcheck diff -C ../deployments --base main --head my-branch --notes`,

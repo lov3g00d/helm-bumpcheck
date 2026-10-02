@@ -2,12 +2,14 @@ package gitdiff
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type testRepo struct {
@@ -258,5 +260,122 @@ func TestChangedChartsDependencyOnly(t *testing.T) {
 	}
 	if !reflect.DeepEqual(skips, want) {
 		t.Errorf("skips = %+v\nwant %+v", skips, want)
+	}
+}
+
+func TestChangedChartsFromSubdirectory(t *testing.T) {
+	r, base, head := setupHistory(t)
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "diff.relative")
+	t.Setenv("GIT_CONFIG_VALUE_0", "true")
+	repo := Repo{Dir: filepath.Join(r.dir, "charts", "same")}
+
+	charts, skips, err := repo.ChangedCharts(context.Background(), base, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(charts) != 1 || charts[0].Dir != "charts/app" || len(skips) != 2 {
+		t.Fatalf("charts = %+v, skips = %+v; want charts/app and two skips with paths from the repository root", charts, skips)
+	}
+	dir, err := repo.Extract(context.Background(), head, charts[0].Dir, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "values.yaml")); err != nil || string(got) != "replicas: 2\n" {
+		t.Errorf("values.yaml = %q, %v", got, err)
+	}
+}
+
+func TestExtractIgnoresExportAttributes(t *testing.T) {
+	r := newTestRepo(t)
+	r.write("charts/app/Chart.yaml", chartYAML("app", "1.0.0"))
+	r.write("charts/app/.gitattributes", "templates/** export-ignore\nvalues.yaml export-subst\n")
+	r.write("charts/app/values.yaml", "author: $Format:%an$\n")
+	r.write("charts/app/templates/cm.yaml", "{{ fail \"new version breaks\" }}\n")
+	r.write("charts/app/hook.sh", "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(r.dir, "charts/app/hook.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rev := r.commit("chart with export attributes")
+
+	dest := t.TempDir()
+	dir, err := Repo{Dir: r.dir}.Extract(context.Background(), rev, "charts/app", dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]bool{}
+	for _, f := range strings.Split(r.git("ls-tree", "-r", "--name-only", rev, "--", "charts/app"), "\n") {
+		want[f] = true
+		got, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(f)))
+		if err != nil {
+			t.Errorf("%s not extracted: %v", f, err)
+			continue
+		}
+		blob, err := exec.Command("git", "-C", r.dir, "cat-file", "blob", rev+":"+f).Output()
+		if err != nil || string(got) != string(blob) {
+			t.Errorf("%s = %q, want the committed blob %q (%v)", f, got, blob, err)
+		}
+	}
+	err = filepath.WalkDir(dest, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(dest, p)
+		if !want[filepath.ToSlash(rel)] {
+			t.Errorf("unexpected file %s", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "hook.sh")); err != nil || info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("hook.sh lost its executable bit: %v, %v", info, err)
+	}
+}
+
+func TestExtractMissingDirectory(t *testing.T) {
+	r, base, _ := setupHistory(t)
+	if _, err := (Repo{Dir: r.dir}).Extract(context.Background(), base, "charts/nope", t.TempDir()); err == nil {
+		t.Error("expected error for a directory with no files")
+	}
+}
+
+func fakeGit(t *testing.T, sleepOn string) {
+	t.Helper()
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = " + sleepOn + " ] && exec sleep 30; done\nexec '" + gitPath + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestGitReportsContextErrors(t *testing.T) {
+	r, base, head := setupHistory(t)
+	repo := Repo{Dir: r.dir}
+	for name, run := range map[string]func(context.Context) error{
+		"rev-parse": func(ctx context.Context) error {
+			_, _, err := repo.ChangedCharts(ctx, base, head)
+			return err
+		},
+		"cat-file": func(ctx context.Context) error {
+			_, err := repo.Extract(ctx, head, "charts/app", t.TempDir())
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeGit(t, name)
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			if err := run(ctx); !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("err = %v, want context.DeadlineExceeded", err)
+			}
+		})
 	}
 }
