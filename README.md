@@ -84,7 +84,7 @@ Release-note matches never fail a run; their probabilities vary slightly between
 | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub API token |
 | `GITHUB_API_URL` | GitHub API endpoint, for GitHub Enterprise |
 | `HELM_BIN` | helm binary, set by helm for plugins |
-| `NO_COLOR` | disables colour |
+| `NO_COLOR` | disables colour when set and not empty |
 
 ## Development
 

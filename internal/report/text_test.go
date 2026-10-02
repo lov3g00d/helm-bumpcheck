@@ -1,6 +1,8 @@
 package report
 
 import (
+	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -55,5 +57,34 @@ func TestTextStripsTerminalEscapes(t *testing.T) {
 	}
 	if !strings.Contains(out, "fix click red evil done") || !strings.Contains(out, "Error: cleared") {
 		t.Errorf("sanitized text lost content:\n%s", out)
+	}
+}
+
+func TestColorEnabledHonoursNoColor(t *testing.T) {
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer tty.Close()
+	if info, err := tty.Stat(); err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		t.Skip("no character device to stand in for a terminal")
+	}
+
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{"", true},
+		{"1", false},
+		{"false", false},
+	}
+	for _, tt := range tests {
+		t.Setenv("NO_COLOR", tt.value)
+		if got := colorEnabled(tty); got != tt.want {
+			t.Errorf("NO_COLOR=%q: colour = %v, want %v", tt.value, got, tt.want)
+		}
+	}
+	if colorEnabled(&bytes.Buffer{}) {
+		t.Error("colour enabled for a non-terminal writer")
 	}
 }

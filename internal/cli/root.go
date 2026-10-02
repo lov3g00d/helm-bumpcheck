@@ -53,7 +53,7 @@ Environment:
   TYPESAFE_MODEL     Jev model, default jev-1.13.0
   GITHUB_TOKEN       raises the GitHub rate limit (GH_TOKEN also works)
   HELM_BIN           helm binary to use, set by helm for plugins
-  NO_COLOR           disables colour in the text report
+  NO_COLOR           disables colour in the text report when set and not empty
 
 Exit codes: 0 no failing findings, 1 error, 2 findings matched --fail-on.`
 

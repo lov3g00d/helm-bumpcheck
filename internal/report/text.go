@@ -33,7 +33,7 @@ func (s style) yellow(t string) string { return s.wrap("33", t) }
 func (s style) dim(t string) string    { return s.wrap("2", t) }
 
 func colorEnabled(w io.Writer) bool {
-	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+	if os.Getenv("NO_COLOR") != "" {
 		return false
 	}
 	f, ok := w.(*os.File)
