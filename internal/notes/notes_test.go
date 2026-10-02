@@ -304,6 +304,19 @@ func TestReleasesSendsUserAgent(t *testing.T) {
 	}
 }
 
+func TestCheckRepo(t *testing.T) {
+	for _, repo := range []string{"grafana/tempo", "argoproj/argo-helm", "user/user.github.io", "a_b/c.d-e"} {
+		if err := CheckRepo(repo); err != nil {
+			t.Errorf("CheckRepo(%q) = %v", repo, err)
+		}
+	}
+	for _, repo := range []string{"", "grafana", "acme/", "/app", "acme/app?x=1", "acme/app/extra", "../..", "acme/..", "./app", "a b/c"} {
+		if err := CheckRepo(repo); err == nil {
+			t.Errorf("CheckRepo(%q) accepted a malformed repo", repo)
+		}
+	}
+}
+
 func TestReleasesErrors(t *testing.T) {
 	g, _ := fakeGitHub(t, nil, 100)
 	if _, _, err := g.Releases(context.Background(), "tempo", "", "1.0.0", "2.0.0"); err == nil {

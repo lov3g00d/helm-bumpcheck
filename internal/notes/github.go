@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,6 +27,18 @@ const (
 
 	unauthenticatedResults = 1000
 )
+
+var (
+	repoName = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
+	dotsOnly = regexp.MustCompile(`(^|/)\.+(/|$)`)
+)
+
+func CheckRepo(repo string) error {
+	if !repoName.MatchString(repo) || dotsOnly.MatchString(repo) {
+		return fmt.Errorf("must be owner/name, got %q", repo)
+	}
+	return nil
+}
 
 type Release struct {
 	Tag     string
@@ -94,8 +107,8 @@ func Canonical(version string) string {
 }
 
 func (g *GitHub) Releases(ctx context.Context, repo, tagPrefix, from, to string) ([]Release, *Truncation, error) {
-	if strings.Count(repo, "/") != 1 {
-		return nil, nil, fmt.Errorf("repo must be owner/name, got %q", repo)
+	if err := CheckRepo(repo); err != nil {
+		return nil, nil, fmt.Errorf("repo %w", err)
 	}
 	lo, hi := Canonical(from), Canonical(to)
 	if lo == "" || hi == "" {

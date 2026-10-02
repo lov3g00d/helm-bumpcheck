@@ -187,7 +187,15 @@ func validate(o options) error {
 		return fmt.Errorf("--max-pages must be at least 1, got %d", o.maxPages)
 	}
 	if o.threshold < 0 || o.threshold > 1 {
-		return fmt.Errorf("threshold must be between 0 and 1, got %v", o.threshold)
+		return fmt.Errorf("--threshold must be between 0 and 1, got %v", o.threshold)
+	}
+	for _, f := range []struct{ name, repo string }{{"--app-repo", o.appRepo}, {"--chart-notes", o.chartNotes}} {
+		if f.repo == "" {
+			continue
+		}
+		if err := notes.CheckRepo(f.repo); err != nil {
+			return fmt.Errorf("%s %w", f.name, err)
+		}
 	}
 	return nil
 }

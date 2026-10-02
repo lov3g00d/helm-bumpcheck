@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -149,6 +150,26 @@ func TestJSONEncodesEmptyListsAsArrays(t *testing.T) {
 	}
 	if string(got.TypeChanged) != "[]" || string(got.Undeclared) != "[]" || len(got.Notes) != 1 || string(got.Notes[0].Matches) != "[]" {
 		t.Errorf("empty lists are not [] in:\n%s", out)
+	}
+}
+
+func TestRejectsMalformedRepoFlags(t *testing.T) {
+	userValues := setup(t)
+	calls := fakeAPIs(t)
+	for _, tt := range []struct{ flag, repo string }{
+		{"--app-repo", "grafana"},
+		{"--app-repo", "acme/"},
+		{"--app-repo", "acme/app?x=1"},
+		{"--app-repo", "../.."},
+		{"--chart-notes", "acme/app/extra"},
+	} {
+		out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, tt.flag, tt.repo)
+		if err == nil || errors.Is(err, ErrFindings) || !strings.Contains(err.Error(), tt.flag+" must be owner/name") || out != "" {
+			t.Errorf("%s %q: err = %v, output %q", tt.flag, tt.repo, err, out)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Errorf("GitHub requests = %d, want none", calls.Load())
 	}
 }
 
