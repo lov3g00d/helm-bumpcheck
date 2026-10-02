@@ -574,3 +574,48 @@ func TestExtractRejectsBadSymlinks(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractFileDependencies(t *testing.T) {
+	dep := func(name, repository string) string {
+		return "dependencies:\n  - name: " + name + "\n    version: 1.0.0\n    repository: " + repository + "\n"
+	}
+	r := newTestRepo(t)
+	r.write("apps/web/Chart.yaml", chartYAML("web", "1.0.0")+dep("common", "file://../../lib/common"))
+	r.write("apps/web/charts/local/Chart.yaml", chartYAML("local", "1.0.0")+dep("base", "file://../../../../lib/base"))
+	r.write("lib/common/Chart.yaml", chartYAML("common", "1.0.0")+dep("base", "file://../base/"))
+	r.write("lib/base/Chart.yaml", chartYAML("base", "1.0.0"))
+	r.write("lib/base/templates/_x.tpl", "x\n")
+	r.write("lib/unused/Chart.yaml", chartYAML("unused", "1.0.0"))
+	rev := r.commit("monorepo")
+	r.write("apps/web/Chart.yaml", chartYAML("web", "1.0.0")+dep("common", "file://../../lib/common")+"  - name: local\n    version: 1.0.0\n    repository: file://charts/local\n")
+	rev2 := r.commit("local subchart")
+
+	repo := Repo{Dir: r.dir}
+	for _, rev := range []string{rev, rev2} {
+		dest := t.TempDir()
+		if _, err := repo.Extract(context.Background(), rev, "apps/web", dest); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.ExtractFileDependencies(context.Background(), rev, "apps/web", dest); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range []string{"lib/common/Chart.yaml", "lib/base/templates/_x.tpl"} {
+			if _, err := os.Stat(filepath.Join(dest, f)); err != nil {
+				t.Errorf("%s not extracted: %v", f, err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dest, "lib/unused")); err == nil {
+			t.Error("an unreferenced chart was extracted")
+		}
+	}
+
+	r.write("apps/web/Chart.yaml", chartYAML("web", "1.0.0")+dep("gone", "file://../../lib/gone"))
+	rev3 := r.commit("missing dependency")
+	dest := t.TempDir()
+	if _, err := repo.Extract(context.Background(), rev3, "apps/web", dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ExtractFileDependencies(context.Background(), rev3, "apps/web", dest); err == nil || !strings.Contains(err.Error(), "dependency gone at file://../../lib/gone: no files under lib/gone") {
+		t.Errorf("err = %v, want the missing dependency named", err)
+	}
+}

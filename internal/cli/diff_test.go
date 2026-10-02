@@ -541,3 +541,76 @@ func TestDiffSkipsRenderWhenDependenciesCannotBeFetched(t *testing.T) {
 		t.Errorf("a dependency failure blamed the values:\n%s", out)
 	}
 }
+
+const fileDepsHelmScript = `#!/bin/sh
+case "$1 $2" in
+  "dependency build")
+    for rel in $(sed -n 's|^ *repository: file://||p' "$3/Chart.yaml"); do
+      if [ ! -d "$3/$rel" ]; then echo "Error: directory $3/$rel not found" >&2; exit 1; fi
+      mkdir -p "$3/charts/common" && cp "$3/$rel/Chart.yaml" "$3/charts/common/Chart.yaml"
+    done
+    exit 0 ;;
+esac
+if [ "$1" = template ] && [ ! -f "$3/charts/common/Chart.yaml" ]; then
+  echo "Error: found in Chart.yaml, but missing in charts/ directory: common" >&2
+  exit 1
+fi
+`
+
+func fileDepHistory(t *testing.T, repository string) (*gitFixture, string, string) {
+	t.Helper()
+	g := newGitFixture(t)
+	bin := filepath.Join(t.TempDir(), "helm")
+	if err := os.WriteFile(bin, []byte(fileDepsHelmScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HELM_BIN", bin)
+	chart := func(version string) string {
+		return "apiVersion: v2\nname: web\nversion: " + version + "\ndependencies:\n  - name: common\n    version: 1.x.x\n    repository: " + repository + "\n"
+	}
+	g.write(map[string]string{
+		"lib/common/Chart.yaml":       "apiVersion: v2\nname: common\nversion: 1.0.0\ntype: library\n",
+		"lib/common/Chart.lock":       "dependencies: []\n",
+		"apps/web/Chart.yaml":         chart("1.0.0"),
+		"apps/web/values.yaml":        "a: 1\n",
+		"apps/web/values-prod.yaml":   "a: 2\n",
+		"apps/other/templates/x.yaml": "kind: ConfigMap\n",
+	})
+	base := g.commit("base")
+	g.write(map[string]string{"apps/web/Chart.yaml": chart("1.1.0")})
+	head := g.commit("bump web")
+	return g, base, head
+}
+
+func TestDiffRendersChartsWithFileDependencies(t *testing.T) {
+	g, base, head := fileDepHistory(t, "file://../../lib/common")
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "-o", "json", "--fail-on", "render")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	var b report.Batch
+	if err := json.Unmarshal([]byte(out), &b); err != nil || len(b.Reports) != 1 {
+		t.Fatalf("reports: %v\n%s", err, out)
+	}
+	if r := b.Reports[0].Render; r == nil || r.Skipped != "" || !r.OldOK || !r.NewOK {
+		t.Errorf("render = %+v, want both versions rendered", r)
+	}
+	if status := g.git("status", "--porcelain", "--ignored"); status != "" {
+		t.Errorf("repository modified:\n%s", status)
+	}
+}
+
+func TestDiffSkipsRenderForFileDependenciesOutsideTheRepository(t *testing.T) {
+	for _, repository := range []string{"file://../../../common", "file:///opt/charts/common"} {
+		t.Run(repository, func(t *testing.T) {
+			g, base, head := fileDepHistory(t, repository)
+			out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--fail-on", "render")
+			if err != nil {
+				t.Fatalf("execute: %v\n%s", err, out)
+			}
+			if !strings.Contains(out, "render        not checked, the file:// dependencies of web 1.0.0 could not be read from git: dependency common at "+repository+" is outside the repository") {
+				t.Errorf("skip reason missing:\n%s", out)
+			}
+		})
+	}
+}

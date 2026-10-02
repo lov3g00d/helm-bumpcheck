@@ -104,14 +104,27 @@ func runDiff(ctx context.Context, w io.Writer, o options, do diffOptions) error 
 }
 
 func diffChart(ctx context.Context, d *deps, repo gitdiff.Repo, c gitdiff.Chart, work string, o options, do diffOptions) ([]report.Report, error) {
-	oldDir, err := repo.Extract(ctx, c.Base, c.Dir, filepath.Join(work, "base"))
-	if err != nil {
-		return nil, err
+	var (
+		dirs       [2]string
+		renderSkip [2]string
+	)
+	for i, side := range []struct{ rev, dest, version string }{{c.Base, "base", c.FromVersion}, {c.Head, "head", c.ToVersion}} {
+		dest := filepath.Join(work, side.dest)
+		var err error
+		if dirs[i], err = repo.Extract(ctx, side.rev, c.Dir, dest); err != nil {
+			return nil, err
+		}
+		if !o.render {
+			continue
+		}
+		if err := repo.ExtractFileDependencies(ctx, side.rev, c.Dir, dest); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			renderSkip[i] = fmt.Sprintf("the file:// dependencies of %s %s could not be read from git: %v", c.Name, side.version, err)
+		}
 	}
-	newDir, err := repo.Extract(ctx, c.Head, c.Dir, filepath.Join(work, "head"))
-	if err != nil {
-		return nil, err
-	}
+	oldDir, newDir := dirs[0], dirs[1]
 
 	files, err := matchValues(newDir, do.valueGlobs)
 	if err != nil {
@@ -122,12 +135,13 @@ func diffChart(ctx context.Context, d *deps, repo gitdiff.Repo, c gitdiff.Chart,
 	}
 
 	cs, err := prepareChart(ctx, d, spec{
-		name:      c.Name,
-		from:      c.FromVersion,
-		to:        c.ToVersion,
-		old:       helm.Chart{Ref: oldDir},
-		new:       helm.Chart{Ref: newDir},
-		buildDeps: true,
+		name:       c.Name,
+		from:       c.FromVersion,
+		to:         c.ToVersion,
+		old:        helm.Chart{Ref: oldDir},
+		new:        helm.Chart{Ref: newDir},
+		buildDeps:  true,
+		renderSkip: renderSkip,
 	}, o)
 	if err != nil {
 		return nil, err

@@ -59,6 +59,7 @@ type spec struct {
 	appRepo    string
 	chartNotes string
 	buildDeps  bool
+	renderSkip [2]string
 }
 
 type chartStage struct {
@@ -88,7 +89,10 @@ func prepareChart(ctx context.Context, d *deps, s spec, o options) (*chartStage,
 			if *side.loaded, err = d.helm.Load(gctx, side.chart, filepath.Join(work, side.dest)); err != nil {
 				return err
 			}
-			if s.buildDeps && o.render {
+			switch {
+			case s.renderSkip[i] != "":
+				cs.renderSkip[i] = s.renderSkip[i]
+			case s.buildDeps && o.render:
 				cs.renderSkip[i] = buildDependencies(gctx, d.helm, *side.loaded)
 			}
 			return gctx.Err()

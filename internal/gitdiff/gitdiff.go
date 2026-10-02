@@ -400,6 +400,43 @@ func (r Repo) Extract(ctx context.Context, rev, dir, dest string) (string, error
 	return filepath.Join(dest, filepath.FromSlash(dir)), nil
 }
 
+func (r Repo) ExtractFileDependencies(ctx context.Context, rev, dir, dest string) error {
+	extracted := []string{dir}
+	seen := map[string]bool{dir: true}
+	queue := []string{dir}
+	for len(queue) > 0 {
+		chart := queue[0]
+		queue = queue[1:]
+		_, meta, err := helm.LoadDir(filepath.Join(dest, filepath.FromSlash(chart)))
+		if err != nil {
+			return err
+		}
+		for _, d := range meta.Dependencies {
+			rel, ok := strings.CutPrefix(d.Repository, "file://")
+			if !ok {
+				continue
+			}
+			dep := path.Join(chart, rel)
+			if path.IsAbs(rel) || !filepath.IsLocal(dep) {
+				return fmt.Errorf("dependency %s at %s is outside the repository", d.Name, d.Repository)
+			}
+			if seen[dep] {
+				continue
+			}
+			seen[dep] = true
+			queue = append(queue, dep)
+			if slices.ContainsFunc(extracted, func(e string) bool { return dep == e || strings.HasPrefix(dep, e+"/") }) {
+				continue
+			}
+			if _, err := r.Extract(ctx, rev, dep, dest); err != nil {
+				return fmt.Errorf("dependency %s at %s: %w", d.Name, d.Repository, err)
+			}
+			extracted = append(extracted, dep)
+		}
+	}
+	return nil
+}
+
 type linkTree struct {
 	repo    Repo
 	rev     string
