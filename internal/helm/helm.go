@@ -6,15 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
 
-const maxRenderLines = 12
+const (
+	maxRenderLines = 12
+	waitDelay      = 5 * time.Second
+)
 
 type Runner struct {
 	Bin string
@@ -31,6 +37,8 @@ type Metadata struct {
 	Version      string       `yaml:"version"`
 	AppVersion   string       `yaml:"appVersion"`
 	Dependencies []Dependency `yaml:"dependencies"`
+	Home         string       `yaml:"home"`
+	Sources      []string     `yaml:"sources"`
 }
 
 type Dependency struct {
@@ -61,20 +69,44 @@ func Detect() (Runner, error) {
 	return Runner{Bin: bin}, nil
 }
 
-func (r Runner) ShowValues(ctx context.Context, c Chart) ([]byte, error) {
-	return r.show(ctx, "values", c)
+func (r Runner) Pull(ctx context.Context, c Chart, dest string) (string, error) {
+	if c.Version == "" && c.Repo == "" {
+		if info, err := os.Stat(c.Ref); err == nil && info.IsDir() {
+			return c.Ref, nil
+		}
+	}
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return "", err
+	}
+	if _, err := r.run(ctx, c, c.args("pull", c.Ref, "--untar", "--untardir", dest)...); err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			return filepath.Join(dest, e.Name()), nil
+		}
+	}
+	return "", fmt.Errorf("helm pull %s %s left no chart directory in %s", c.Ref, c.Version, dest)
 }
 
-func (r Runner) ShowChart(ctx context.Context, c Chart) (Metadata, error) {
-	data, err := r.show(ctx, "chart", c)
+func LoadDir(dir string) ([]byte, Metadata, error) {
+	chartYAML, err := os.ReadFile(filepath.Join(dir, "Chart.yaml"))
 	if err != nil {
-		return Metadata{}, err
+		return nil, Metadata{}, err
 	}
 	var m Metadata
-	if err := yaml.Unmarshal(data, &m); err != nil {
-		return Metadata{}, fmt.Errorf("parse Chart.yaml of %s %s: %w", c.Ref, c.Version, err)
+	if err := yaml.Unmarshal(chartYAML, &m); err != nil {
+		return nil, Metadata{}, fmt.Errorf("parse %s: %w", filepath.Join(dir, "Chart.yaml"), err)
 	}
-	return m, nil
+	defaults, err := os.ReadFile(filepath.Join(dir, "values.yaml"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, m, nil
+	}
+	return defaults, m, err
 }
 
 func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) error {
@@ -82,7 +114,7 @@ func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) erro
 	for _, f := range valueFiles {
 		args = append(args, "-f", f)
 	}
-	cmd := exec.CommandContext(ctx, r.Bin, args...)
+	cmd := r.command(ctx, args...)
 	cmd.Stdout = io.Discard
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -140,15 +172,22 @@ func (c Chart) args(cmd ...string) []string {
 	return args
 }
 
-func (r Runner) show(ctx context.Context, what string, c Chart) ([]byte, error) {
-	args := c.args("show", what, c.Ref)
-
+func (r Runner) command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, r.Bin, args...)
+	cmd.WaitDelay = waitDelay
+	return cmd
+}
+
+func (r Runner) run(ctx context.Context, c Chart, args ...string) ([]byte, error) {
+	cmd := r.command(ctx, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		cmdline := c.redact("helm " + strings.Join(args, " "))
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return nil, fmt.Errorf("%s: %w: %s", cmdline, err, c.redact(msg))

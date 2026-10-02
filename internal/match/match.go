@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path"
 	"slices"
-	"sort"
 	"strings"
 	"unicode"
 
@@ -253,12 +252,19 @@ type Result struct {
 	Stats    Stats
 }
 
-func CheckReleaseNotes(ctx context.Context, gh *notes.GitHub, ev Evaluator, req Request) (Result, error) {
+func Fetch(ctx context.Context, gh *notes.GitHub, req Request) ([]notes.Release, []notes.Entry, error) {
 	releases, err := gh.Releases(ctx, req.Repo, req.TagPrefix, req.From, req.To)
+	if err != nil {
+		return nil, nil, err
+	}
+	return releases, notes.SplitAll(releases), nil
+}
+
+func CheckReleaseNotes(ctx context.Context, gh *notes.GitHub, ev Evaluator, req Request) (Result, error) {
+	releases, entries, err := Fetch(ctx, gh, req)
 	if err != nil {
 		return Result{}, err
 	}
-	entries := SplitAll(releases)
 	matches, stats, err := Ask(ctx, ev, Candidates(entries, req.Keys, req.ignore()), DefaultConcurrency)
 	if err != nil {
 		return Result{}, err
@@ -270,24 +276,52 @@ func (r Request) ignore() []string {
 	return append([]string{path.Base(r.Repo)}, r.Ignore...)
 }
 
-func SplitAll(releases []notes.Release) []notes.Entry {
-	var entries []notes.Entry
-	for _, rel := range releases {
-		for _, e := range notes.Split(rel) {
-			if !boilerplate(e) {
-				entries = append(entries, e)
-			}
-		}
-	}
-	return entries
+func (r Request) Candidates(entries []notes.Entry) []Candidate {
+	return Candidates(entries, r.Keys, r.ignore())
 }
 
-func boilerplate(e notes.Entry) bool {
-	s, t := strings.ToLower(e.Section), strings.ToLower(e.Text)
-	return s == "new contributors" ||
-		strings.HasPrefix(t, "**full changelog**") ||
-		strings.HasPrefix(t, "full changelog") ||
-		strings.Contains(t, "made their first contribution")
+type Memo struct {
+	answers map[memoKey]Match
+}
+
+type memoKey struct {
+	release, text, key string
+}
+
+func NewMemo() *Memo {
+	return &Memo{answers: map[memoKey]Match{}}
+}
+
+func AskMemo(ctx context.Context, ev Evaluator, memo *Memo, candidates []Candidate, concurrency int) ([]Match, Stats, error) {
+	var (
+		known   []Match
+		pending []Candidate
+	)
+	for _, c := range candidates {
+		var missing []string
+		for _, k := range c.Keys {
+			if m, ok := memo.answers[memoKey{c.Entry.Release, c.Entry.Text, k}]; ok {
+				known = append(known, m)
+			} else {
+				missing = append(missing, k)
+			}
+		}
+		if len(missing) > 0 {
+			pending = append(pending, Candidate{Entry: c.Entry, Keys: missing})
+		}
+	}
+	fresh, stats, err := Ask(ctx, ev, pending, concurrency)
+	if err != nil {
+		return nil, stats, err
+	}
+	for _, m := range fresh {
+		memo.answers[memoKey{m.Release, m.Text, m.Key}] = m
+	}
+	out := append(known, fresh...)
+	slices.SortStableFunc(out, func(a, b Match) int {
+		return cmp.Or(cmp.Compare(b.Probability, a.Probability), cmp.Compare(a.Key, b.Key))
+	})
+	return out, stats, nil
 }
 
 func KeywordKeys(entries []notes.Entry, req Request) []string {
@@ -305,6 +339,6 @@ func KeywordKeys(entries []notes.Entry, req Request) []string {
 			}
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }

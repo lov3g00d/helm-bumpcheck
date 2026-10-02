@@ -5,15 +5,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
 	"github.com/lov3g00d/helm-bumpcheck/internal/report"
 )
 
-func fakeAPIs(t *testing.T) {
+func fakeAPIs(t *testing.T) *atomic.Int32 {
 	t.Helper()
+	var ghCalls atomic.Int32
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ghCalls.Add(1)
 		if r.URL.Path != "/repos/acme/app/releases" {
 			http.NotFound(w, r)
 			return
@@ -53,6 +56,7 @@ func fakeAPIs(t *testing.T) {
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv(jev.BaseURLEnv, jv.URL)
 	t.Setenv(jev.APIKeyEnv, "test-key")
+	return &ghCalls
 }
 
 func TestNotesTextOutput(t *testing.T) {
@@ -169,5 +173,17 @@ func TestChartNotes(t *testing.T) {
 	}
 	if !strings.Contains(out, "Release notes (chart): skipped, no releases of acme/app tagged mychart-<version> in (1.0.0, 2.0.0]") {
 		t.Errorf("empty range not reported as skipped:\n%s", out)
+	}
+}
+
+func TestDiffFetchesNotesOncePerChart(t *testing.T) {
+	g, base, head := bumpHistory(t)
+	ghCalls := fakeAPIs(t)
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--notes")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if got := ghCalls.Load(); got != 2 {
+		t.Errorf("GitHub requests = %d, want 2 (one per notes source, shared by both values files)", got)
 	}
 }

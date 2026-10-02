@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -84,28 +84,41 @@ func (g *GitHub) Releases(ctx context.Context, repo, tagPrefix, from, to string)
 		return nil, fmt.Errorf("versions must be semver, got %q and %q", from, to)
 	}
 
-	var out []Release
+	var (
+		out      []Release
+		seenFrom bool
+	)
 	for page := 1; page <= g.MaxPages; page++ {
 		batch, err := g.page(ctx, repo, page)
 		if err != nil {
 			return nil, err
 		}
+		matching, older := 0, 0
 		for _, r := range batch {
 			if r.Draft || r.Prerelease || !strings.HasPrefix(r.TagName, tagPrefix) {
 				continue
 			}
 			v := Canonical(strings.TrimPrefix(r.TagName, tagPrefix))
-			if v == "" || semver.Compare(v, lo) <= 0 || semver.Compare(v, hi) > 0 {
+			if v == "" {
+				continue
+			}
+			matching++
+			if semver.Compare(v, lo) <= 0 {
+				older++
+				seenFrom = true
+				continue
+			}
+			if semver.Compare(v, hi) > 0 {
 				continue
 			}
 			out = append(out, Release{Tag: r.TagName, Version: v, Body: r.Body, URL: r.HTMLURL})
 		}
-		if len(batch) < g.PerPage {
+		if len(batch) < g.PerPage || (seenFrom && matching > 0 && older == matching) {
 			break
 		}
 	}
 
-	sort.Slice(out, func(i, j int) bool { return semver.Compare(out[i].Version, out[j].Version) < 0 })
+	slices.SortFunc(out, func(a, b Release) int { return semver.Compare(a.Version, b.Version) })
 	return out, nil
 }
 

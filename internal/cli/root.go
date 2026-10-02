@@ -26,6 +26,7 @@ type options struct {
 	chartNotes     string
 	chartTagPrefix string
 	maxPages       int
+	detectNotes    bool
 }
 
 var ErrFindings = errors.New("report has findings")
@@ -44,6 +45,9 @@ func NewRootCmd() *cobra.Command {
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return validate(o)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd.Context(), cmd.OutOrStdout(), args[0], o)
 		},
@@ -81,29 +85,29 @@ func commandName() string {
 }
 
 func run(ctx context.Context, w io.Writer, chart string, o options) error {
-	write, err := validate(o)
+	d, cleanup, err := newDeps(o)
 	if err != nil {
 		return err
 	}
-	h, err := helm.Detect()
-	if err != nil {
-		return err
-	}
+	defer cleanup()
 
-	res, err := analyze(ctx, h, spec{
+	cs, err := prepareChart(ctx, d, spec{
 		name:       chart,
 		from:       o.from,
 		to:         o.to,
 		old:        helm.Chart{Ref: chart, Version: o.from, Repo: o.repo},
 		new:        helm.Chart{Ref: chart, Version: o.to, Repo: o.repo},
-		valueFiles: o.valueFiles,
 		appRepo:    o.appRepo,
 		chartNotes: o.chartNotes,
 	}, o)
 	if err != nil {
 		return err
 	}
-	if err := write(w, res); err != nil {
+	res, err := analyzeValues(ctx, d, cs, o.valueFiles, nil, o)
+	if err != nil {
+		return err
+	}
+	if err := writers[o.output](w, res); err != nil {
 		return err
 	}
 	return failing(o, res)

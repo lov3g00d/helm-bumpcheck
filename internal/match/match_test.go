@@ -196,19 +196,6 @@ func TestKeywordKeys(t *testing.T) {
 	}
 }
 
-func TestSplitAllDropsBoilerplate(t *testing.T) {
-	rel := notes.Release{Tag: "velero-4.0.0", Body: "A Helm chart for velero\n\n## What's Changed\n* [velero] Add support for multiple locations by @a in #413\n\n## New Contributors\n* @a made their first contribution in #413\n\n**Full Changelog**: https://github.com/x/y/compare/a...b"}
-	got := SplitAll([]notes.Release{rel})
-	var texts []string
-	for _, e := range got {
-		texts = append(texts, e.Text)
-	}
-	want := []string{"A Helm chart for velero", "[velero] Add support for multiple locations by @a in #413"}
-	if !reflect.DeepEqual(texts, want) {
-		t.Errorf("SplitAll texts = %q, want %q", texts, want)
-	}
-}
-
 type flakyEvaluator struct{}
 
 func (flakyEvaluator) Evaluate(ctx context.Context, state any, questions map[string]jev.Question) (*jev.Response, error) {
@@ -263,4 +250,20 @@ func (f evaluatorFunc) Evaluate(ctx context.Context, state any, questions map[st
 		resp.Answers[id] = jev.Answer{Type: "noul", Noul: 0.1}
 	}
 	return resp, nil
+}
+
+func TestAskMemoReusesAnswers(t *testing.T) {
+	ev := &fakeEvaluator{answer: func(entry, key string) float64 { return 0.7 }}
+	memo := NewMemo()
+	candidates := []Candidate{{Entry: notes.Entry{Release: "v1", Text: "removed x"}, Keys: []string{"a.key", "b.key"}}}
+
+	first, stats, err := AskMemo(context.Background(), ev, memo, candidates, 2)
+	if err != nil || len(first) != 2 || stats.Questions != 2 {
+		t.Fatalf("first = %v %+v %v", first, stats, err)
+	}
+	more := []Candidate{{Entry: candidates[0].Entry, Keys: []string{"a.key", "c.key"}}}
+	second, stats, err := AskMemo(context.Background(), ev, memo, more, 2)
+	if err != nil || len(second) != 2 || stats.Questions != 1 || ev.calls != 2 {
+		t.Errorf("second = %v %+v %v calls=%d, want only c.key asked", second, stats, err, ev.calls)
+	}
 }

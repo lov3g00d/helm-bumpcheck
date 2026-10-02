@@ -268,3 +268,27 @@ func TestReleasesGivesUpOnLongRateLimit(t *testing.T) {
 		t.Errorf("err = %v after %s", err, time.Since(start))
 	}
 }
+
+func TestSplitAllDropsBoilerplate(t *testing.T) {
+	rel := Release{Tag: "velero-4.0.0", Body: "A Helm chart for velero\n\n## What's Changed\n* [velero] Add support for multiple locations by @a in #413\n\n## New Contributors\n* @a made their first contribution in #413\n\n**Full Changelog**: https://github.com/x/y/compare/a...b"}
+	got := SplitAll([]Release{rel})
+	var texts []string
+	for _, e := range got {
+		texts = append(texts, e.Text)
+	}
+	want := []string{"A Helm chart for velero", "[velero] Add support for multiple locations by @a in #413"}
+	if !reflect.DeepEqual(texts, want) {
+		t.Errorf("SplitAll texts = %q, want %q", texts, want)
+	}
+}
+
+func TestReleasesStopsPagingPastFrom(t *testing.T) {
+	g, requests := fakeGitHub(t, []string{"v3.0.0", "v2.9.0", "v2.8.0", "v2.7.0", "v2.6.0", "v2.5.0"}, 2)
+	got, err := g.Releases(context.Background(), "grafana/tempo", "", "2.9.0", "3.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(tags(got), []string{"v3.0.0"}) || requests.Load() != 2 {
+		t.Errorf("tags %v after %d requests, want [v3.0.0] after 2", tags(got), requests.Load())
+	}
+}

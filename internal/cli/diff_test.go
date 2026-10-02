@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
 	"github.com/lov3g00d/helm-bumpcheck/internal/report"
 )
 
 const dirHelmScript = `#!/bin/sh
 if [ "$1" = template ] && [ -n "$FAKE_LOG" ]; then echo "$*" >> "$FAKE_LOG"; fi
-case "$3" in *broken*) echo "Error: chart is broken" >&2; exit 1 ;; esac
 case "$1 $2" in
   "show values") cat "$3/values.yaml" ;;
   "show chart") cat "$3/Chart.yaml" ;;
@@ -197,12 +197,10 @@ func TestDiffNotesDetectsRepos(t *testing.T) {
 }
 
 func TestDetectRepos(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "Chart.yaml")
-	data := "name: grafana\nhome: https://grafana.com\nsources:\n  - https://github.com/grafana/grafana\n  - https://github.com/grafana/helm-charts.git\n"
-	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	app, chart := detectRepos(path)
+	app, chart := detectRepos(helm.Metadata{
+		Home:    "https://grafana.com",
+		Sources: []string{"https://github.com/grafana/grafana", "https://github.com/grafana/helm-charts.git"},
+	})
 	if app != "grafana/grafana" || chart != "grafana/helm-charts" {
 		t.Errorf("detectRepos = %q, %q", app, chart)
 	}
@@ -223,14 +221,17 @@ func TestDiffFailedChartExitsWithError(t *testing.T) {
 		"charts/broken/values_prod.yaml": "a: 2\n",
 	})
 	base := g.commit("add broken")
-	g.write(map[string]string{"charts/broken/Chart.yaml": "apiVersion: v2\nname: broken\nversion: 1.1.0\n"})
+	g.write(map[string]string{
+		"charts/broken/Chart.yaml":  "apiVersion: v2\nname: broken\nversion: 1.1.0\n",
+		"charts/broken/values.yaml": "a: [unclosed\n",
+	})
 	head := g.commit("bump broken")
 
 	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head)
 	if err == nil || errors.Is(err, ErrFindings) || !strings.Contains(err.Error(), "1 chart could not be analyzed") {
 		t.Fatalf("err = %v, want an analysis error", err)
 	}
-	if !strings.Contains(out, "Failed\n  charts/broken: values_prod.yaml: ") {
+	if !strings.Contains(out, "Failed\n  charts/broken: parse values of ") {
 		t.Errorf("failed chart not reported:\n%s", out)
 	}
 }

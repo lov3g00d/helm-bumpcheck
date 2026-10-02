@@ -13,33 +13,30 @@ import (
 )
 
 const fakeHelmScript = `#!/bin/sh
-case "$*" in
-  "show chart "*"--version 1.0.0"*)
-    printf 'name: mychart\nversion: 1.0.0\nappVersion: "1.0.0"\n'
-    ;;
-  "show chart "*"--version 2.0.0"*)
-    printf 'name: mychart\nversion: 2.0.0\nappVersion: "2.0.0"\n'
-    ;;
-  "template "*"--version 2.0.0"*)
-    if [ -n "$FAKE_RENDER_FAIL" ]; then
-      echo "Error: execution error at (mychart/templates/NOTES.txt:1:1):" >&2
-      echo "ERROR: legacy mode was removed, unset legacy.enabled" >&2
-      exit 1
-    fi
-    ;;
-  "template "*)
-    ;;
-  *"--version 1.0.0"*)
-    printf 'replicas: 1\nport: 3100\nlegacy:\n  enabled: false\nextraConfig: {}\n'
-    ;;
-  *"--version 2.0.0"*)
-    printf 'replicas: 1\nport: 3200\nextraConfig: {}\nnewThing: true\n'
-    ;;
-  *)
-    echo "Error: chart version not found" >&2
-    exit 1
-    ;;
-esac
+if [ "$1" = pull ]; then
+  dest=""; version=""; prev=""
+  for a in "$@"; do
+    case "$prev" in
+      --untardir) dest="$a" ;;
+      --version) version="$a" ;;
+    esac
+    prev="$a"
+  done
+  mkdir -p "$dest/mychart"
+  case "$version" in
+    1.0.0) values='replicas: 1\nport: 3100\nlegacy:\n  enabled: false\nextraConfig: {}\n' ;;
+    2.0.0) values='replicas: 1\nport: 3200\nextraConfig: {}\nnewThing: true\n' ;;
+    *) echo "Error: chart version not found" >&2; exit 1 ;;
+  esac
+  printf "name: mychart\nversion: $version\nappVersion: \"$version\"\n" > "$dest/mychart/Chart.yaml"
+  printf "$values" > "$dest/mychart/values.yaml"
+  exit 0
+fi
+if [ "$1" = template ] && [ -n "$FAKE_RENDER_FAIL" ] && grep -q '^version: 2' "$3/Chart.yaml"; then
+  echo "Error: execution error at (mychart/templates/NOTES.txt:1:1):" >&2
+  echo "ERROR: legacy mode was removed, unset legacy.enabled" >&2
+  exit 1
+fi
 `
 
 func setup(t *testing.T) string {

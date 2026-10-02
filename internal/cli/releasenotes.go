@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
+	"strings"
 
-	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
+	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
 	"github.com/lov3g00d/helm-bumpcheck/internal/match"
 	"github.com/lov3g00d/helm-bumpcheck/internal/notes"
 	"github.com/lov3g00d/helm-bumpcheck/internal/report"
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
+
+var githubRepo = regexp.MustCompile(`github\.com[/:]([\w.-]+)/([\w.-]+)`)
 
 type notesSource struct {
 	kind      string
@@ -21,7 +25,14 @@ type notesSource struct {
 	to        string
 }
 
-func notesSources(s spec, o options, oldMeta, newMeta string) []notesSource {
+type fetchedNotes struct {
+	src      notesSource
+	releases int
+	entries  []notes.Entry
+	skipped  string
+}
+
+func notesSources(s spec, o options, oldApp, newApp string) []notesSource {
 	var out []notesSource
 	if s.chartNotes != "" {
 		prefix := o.chartTagPrefix
@@ -31,64 +42,92 @@ func notesSources(s spec, o options, oldMeta, newMeta string) []notesSource {
 		out = append(out, notesSource{kind: "chart", repo: s.chartNotes, tagPrefix: prefix, from: s.from, to: s.to})
 	}
 	if s.appRepo != "" {
-		out = append(out, notesSource{kind: "app", repo: s.appRepo, tagPrefix: o.appTagPrefix, from: oldMeta, to: newMeta})
+		out = append(out, notesSource{kind: "app", repo: s.appRepo, tagPrefix: o.appTagPrefix, from: oldApp, to: newApp})
 	}
 	return out
 }
 
-func checkAllNotes(ctx context.Context, chart string, o options, sources []notesSource, r values.Report) ([]*report.Notes, error) {
-	keys := slices.Concat(r.Removed, typedKeys(r.TypeChanged), r.Freeform, r.Undeclared)
-	client, keyErr := jev.NewFromEnv()
-	gh := notes.NewGitHubFromEnv()
-	gh.MaxPages = o.maxPages
-
-	var out []*report.Notes
-	for _, src := range sources {
-		res := &report.Notes{Source: src.kind, Repo: src.repo, TagPrefix: src.tagPrefix, From: src.from, To: src.to, Threshold: o.threshold}
-		switch {
-		case src.from == "" || src.to == "":
-			res.Skipped = "the chart has no appVersion"
-		case notes.Canonical(src.from) == "" || notes.Canonical(src.to) == "":
-			res.Skipped = fmt.Sprintf("versions %q -> %q are not semver", src.from, src.to)
-		case notes.Canonical(src.from) == notes.Canonical(src.to):
-			res.Skipped = "the version did not change"
-		case len(keys) == 0:
-			res.Skipped = "no keys need checking"
-		case keyErr != nil:
-			res.Skipped = keyErr.Error()
+func detectRepos(meta helm.Metadata) (appRepo, chartNotes string) {
+	for _, src := range append(slices.Clone(meta.Sources), meta.Home) {
+		m := githubRepo.FindStringSubmatch(src)
+		if m == nil {
+			continue
 		}
-		if res.Skipped == "" {
-			if err := checkNotes(ctx, gh, client, chart, src, keys, res); err != nil {
-				return nil, err
+		owner, name := m[1], strings.TrimSuffix(m[2], ".git")
+		full := owner + "/" + name
+		if strings.Contains(strings.ToLower(name), "chart") {
+			if chartNotes == "" {
+				chartNotes = full
 			}
+		} else if appRepo == "" {
+			appRepo = full
 		}
-		out = append(out, res)
 	}
-	return out, nil
+	return appRepo, chartNotes
 }
 
-func checkNotes(ctx context.Context, gh *notes.GitHub, client *jev.Client, chart string, src notesSource, keys []string, res *report.Notes) error {
-	out, err := match.CheckReleaseNotes(ctx, gh, client, match.Request{
+func fetchNotes(ctx context.Context, d *deps, chart string, src notesSource) *fetchedNotes {
+	f := &fetchedNotes{src: src}
+	switch {
+	case src.from == "" || src.to == "":
+		f.skipped = "the chart has no appVersion"
+	case notes.Canonical(src.from) == "" || notes.Canonical(src.to) == "":
+		f.skipped = fmt.Sprintf("versions %q -> %q are not semver", src.from, src.to)
+	case notes.Canonical(src.from) == notes.Canonical(src.to):
+		f.skipped = "the version did not change"
+	case d.jev == nil:
+		f.skipped = d.jevErr.Error()
+	}
+	if f.skipped != "" {
+		return f
+	}
+
+	releases, entries, err := match.Fetch(ctx, d.gh, request(chart, src, nil))
+	switch {
+	case err != nil:
+		f.skipped = err.Error()
+	case len(releases) == 0:
+		f.skipped = fmt.Sprintf("no releases of %s tagged %s<version> in (%s, %s]", src.repo, src.tagPrefix, src.from, src.to)
+	default:
+		f.releases, f.entries = len(releases), entries
+	}
+	return f
+}
+
+func askNotes(ctx context.Context, d *deps, cs *chartStage, f *fetchedNotes, r values.Report, o options) (*report.Notes, error) {
+	src := f.src
+	res := &report.Notes{Source: src.kind, Repo: src.repo, TagPrefix: src.tagPrefix, From: src.from, To: src.to, Threshold: o.threshold, Skipped: f.skipped}
+	if res.Skipped != "" {
+		return res, nil
+	}
+	keys := slices.Concat(r.Removed, typedKeys(r.TypeChanged), r.Freeform, r.Undeclared)
+	if len(keys) == 0 {
+		res.Skipped = "no keys need checking"
+		return res, nil
+	}
+
+	req := request(cs.spec.name, src, keys)
+	matches, stats, err := match.AskMemo(ctx, d.jev, cs.memo, req.Candidates(f.entries), match.DefaultConcurrency)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		res.Skipped = err.Error()
+		return res, nil
+	}
+	res.Releases, res.Entries, res.Matches, res.Stats = f.releases, len(f.entries), matches, stats
+	return res, nil
+}
+
+func request(chart string, src notesSource, keys []string) match.Request {
+	return match.Request{
 		Repo:      src.repo,
 		TagPrefix: src.tagPrefix,
 		From:      src.from,
 		To:        src.to,
 		Keys:      keys,
 		Ignore:    []string{path.Base(chart)},
-	})
-	if err != nil {
-		if ctx.Err() != nil {
-			return err
-		}
-		res.Skipped = err.Error()
-		return nil
 	}
-	if len(out.Releases) == 0 {
-		res.Skipped = fmt.Sprintf("no releases of %s tagged %s<version> in (%s, %s]", src.repo, src.tagPrefix, src.from, src.to)
-		return nil
-	}
-	res.Releases, res.Entries, res.Matches, res.Stats = len(out.Releases), len(out.Entries), out.Matches, out.Stats
-	return nil
 }
 
 func typedKeys(tcs []values.TypeChange) []string {

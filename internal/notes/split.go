@@ -88,3 +88,23 @@ func stripBullet(s string) string {
 	}
 	return s
 }
+
+func SplitAll(releases []Release) []Entry {
+	var entries []Entry
+	for _, rel := range releases {
+		for _, e := range Split(rel) {
+			if !boilerplate(e) {
+				entries = append(entries, e)
+			}
+		}
+	}
+	return entries
+}
+
+func boilerplate(e Entry) bool {
+	s, t := strings.ToLower(e.Section), strings.ToLower(e.Text)
+	return s == "new contributors" ||
+		strings.HasPrefix(t, "**full changelog**") ||
+		strings.HasPrefix(t, "full changelog") ||
+		strings.Contains(t, "made their first contribution")
+}

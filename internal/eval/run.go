@@ -76,7 +76,7 @@ func (r Runner) runCase(ctx context.Context, c Case) (CaseResult, error) {
 		if err != nil {
 			return res, err
 		}
-		entries = match.SplitAll(releases)
+		entries = notes.SplitAll(releases)
 	}
 
 	res.Releases, res.Entries = len(releases), len(entries)

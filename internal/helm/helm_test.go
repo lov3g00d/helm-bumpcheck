@@ -21,57 +21,6 @@ func fakeHelm(t *testing.T, script string) string {
 	return path
 }
 
-func TestShowValuesPassesArgs(t *testing.T) {
-	r := Runner{Bin: fakeHelm(t, `printf '%s\n' "$@"`)}
-	out, err := r.ShowValues(context.Background(), Chart{Ref: "tempo", Version: "1.10.0", Repo: "https://grafana.github.io/helm-charts"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "show\nvalues\ntempo\n--version\n1.10.0\n--repo\nhttps://grafana.github.io/helm-charts\n"
-	if string(out) != want {
-		t.Errorf("args =\n%s\nwant\n%s", out, want)
-	}
-}
-
-func TestShowValuesOmitsEmptyFlags(t *testing.T) {
-	r := Runner{Bin: fakeHelm(t, `printf '%s\n' "$@"`)}
-	out, err := r.ShowValues(context.Background(), Chart{Ref: "oci://ghcr.io/x/chart"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "show\nvalues\noci://ghcr.io/x/chart\n"; string(out) != want {
-		t.Errorf("args =\n%s\nwant\n%s", out, want)
-	}
-}
-
-func TestShowValuesErrorIncludesStderr(t *testing.T) {
-	r := Runner{Bin: fakeHelm(t, `echo 'Error: chart "nope" not found' >&2; exit 1`)}
-	_, err := r.ShowValues(context.Background(), Chart{Ref: "nope", Version: "1.0.0"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), `chart "nope" not found`) {
-		t.Errorf("error %q does not include helm stderr", err)
-	}
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Errorf("error %q does not wrap *exec.ExitError", err)
-	}
-}
-
-func TestShowValuesHonoursContext(t *testing.T) {
-	r := Runner{Bin: fakeHelm(t, `exec sleep 10`)}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	if _, err := r.ShowValues(ctx, Chart{Ref: "tempo"}); err == nil {
-		t.Fatal("expected error")
-	}
-	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Errorf("took %s, context cancel did not stop helm", elapsed)
-	}
-}
-
 func TestDetectPrefersHelmBin(t *testing.T) {
 	t.Setenv("HELM_BIN", "/opt/helm4/helm")
 	r, err := Detect()
@@ -101,28 +50,6 @@ func TestDetectErrorsWithoutHelm(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := Detect(); err == nil {
 		t.Fatal("expected error when helm is missing")
-	}
-}
-
-func TestShowChart(t *testing.T) {
-	script := `case "$1 $2" in
-  "show chart") printf 'apiVersion: v2\nname: tempo\nversion: 1.24.4\nappVersion: "2.9.0"\n' ;;
-  *) echo "unexpected: $*" >&2; exit 1 ;;
-esac`
-	r := Runner{Bin: fakeHelm(t, script)}
-	m, err := r.ShowChart(context.Background(), Chart{Ref: "tempo", Version: "1.24.4"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m.Name != "tempo" || m.Version != "1.24.4" || m.AppVersion != "2.9.0" {
-		t.Errorf("metadata = %+v", m)
-	}
-}
-
-func TestShowChartBadYAML(t *testing.T) {
-	r := Runner{Bin: fakeHelm(t, `printf 'name: [unclosed\n'`)}
-	if _, err := r.ShowChart(context.Background(), Chart{Ref: "tempo", Version: "1.0.0"}); err == nil || !strings.Contains(err.Error(), "parse Chart.yaml of tempo 1.0.0") {
-		t.Errorf("err = %v", err)
 	}
 }
 
@@ -166,13 +93,93 @@ func TestCleanRenderErrorCapsLines(t *testing.T) {
 
 func TestErrorsRedactRepoCredentials(t *testing.T) {
 	repo := "https://user:s3cret@charts.example.com"
-	r := Runner{Bin: fakeHelm(t, `echo "Error: failed to fetch $5/index.yaml" >&2; exit 1`)}
-	_, err := r.ShowValues(context.Background(), Chart{Ref: "app", Repo: repo})
+	r := Runner{Bin: fakeHelm(t, `for a in "$@"; do case "$a" in https://*) echo "Error: failed to fetch $a/index.yaml" >&2 ;; esac; done; exit 1`)}
+	_, err := r.Pull(context.Background(), Chart{Ref: "app", Repo: repo}, t.TempDir())
 	if err == nil || strings.Contains(err.Error(), "s3cret") || !strings.Contains(err.Error(), "user:xxxxx@charts.example.com") {
 		t.Errorf("err = %v", err)
 	}
 	err = r.Template(context.Background(), Chart{Ref: "app", Repo: repo}, nil)
 	if err == nil || strings.Contains(err.Error(), "s3cret") {
 		t.Errorf("template err = %v", err)
+	}
+}
+
+const pullScript = `dest=""; prev=""
+for a in "$@"; do
+  if [ "$prev" = "--untardir" ]; then dest="$a"; fi
+  prev="$a"
+done
+echo "$*" > "$dest/../args"
+mkdir -p "$dest/tempo"
+printf 'apiVersion: v2\nname: tempo\nversion: 1.24.4\nappVersion: "2.9.0"\nsources:\n  - https://github.com/grafana/tempo\ndependencies:\n  - name: minio\n    alias: store\n' > "$dest/tempo/Chart.yaml"
+printf 'replicas: 1\n' > "$dest/tempo/values.yaml"`
+
+func TestPullAndLoadDir(t *testing.T) {
+	r := Runner{Bin: fakeHelm(t, pullScript)}
+	work := t.TempDir()
+	dest := filepath.Join(work, "new")
+	dir, err := r.Pull(context.Background(), Chart{Ref: "tempo", Version: "1.24.4", Repo: "https://x"}, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != filepath.Join(dest, "tempo") {
+		t.Errorf("dir = %q", dir)
+	}
+	args, _ := os.ReadFile(filepath.Join(work, "args"))
+	if want := "pull tempo --untar --untardir " + dest + " --version 1.24.4 --repo https://x\n"; string(args) != want {
+		t.Errorf("args = %q, want %q", args, want)
+	}
+
+	defaults, meta, err := LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(defaults) != "replicas: 1\n" || meta.AppVersion != "2.9.0" || meta.Sources[0] != "https://github.com/grafana/tempo" {
+		t.Errorf("defaults %q meta %+v", defaults, meta)
+	}
+	if got := meta.DependencyNames(); len(got) != 1 || got[0] != "store" {
+		t.Errorf("dependencies = %v", got)
+	}
+}
+
+func TestPullUsesLocalDirectory(t *testing.T) {
+	dir := t.TempDir()
+	r := Runner{Bin: fakeHelm(t, "echo should not run >&2; exit 1")}
+	got, err := r.Pull(context.Background(), Chart{Ref: dir}, t.TempDir())
+	if err != nil || got != dir {
+		t.Errorf("Pull(local) = %q, %v", got, err)
+	}
+}
+
+func TestPullErrorIncludesStderr(t *testing.T) {
+	r := Runner{Bin: fakeHelm(t, `echo 'Error: chart "nope" version "9" not found' >&2; exit 1`)}
+	_, err := r.Pull(context.Background(), Chart{Ref: "nope", Version: "9"}, t.TempDir())
+	var exitErr *exec.ExitError
+	if err == nil || !strings.Contains(err.Error(), `chart "nope" version "9" not found`) || !errors.As(err, &exitErr) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestPullHonoursContext(t *testing.T) {
+	r := Runner{Bin: fakeHelm(t, "exec sleep 10")}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := r.Pull(ctx, Chart{Ref: "tempo", Version: "1"}, t.TempDir()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want deadline exceeded", err)
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Error("context did not stop helm")
+	}
+}
+
+func TestLoadDirWithoutValues(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("name: lib\nversion: 1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defaults, meta, err := LoadDir(dir)
+	if err != nil || defaults != nil || meta.Name != "lib" {
+		t.Errorf("LoadDir = %q, %+v, %v", defaults, meta, err)
 	}
 }
