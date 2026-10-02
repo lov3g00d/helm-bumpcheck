@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -134,6 +135,24 @@ func TestFooterWarnsAboutSubcharts(t *testing.T) {
 	want := "The chart has 2 subcharts (minio, agent); keys under them are not compared against the subchart defaults."
 	if len(v.Footer) != 1 || v.Footer[0] != want {
 		t.Errorf("footer = %q", v.Footer)
+	}
+}
+
+func TestBuildShowsDroppedSubcharts(t *testing.T) {
+	v := build(Report{Chart: "c", From: "1", To: "2", Report: values.Report{
+		Removed:             []string{"legacy", "redis.auth.password", "redisx.a"},
+		RemovedDependencies: []string{"redis"},
+	}})
+	var details []string
+	for _, r := range v.Breaking {
+		details = append(details, r.Path+": "+r.Detail)
+	}
+	want := []string{"legacy: no longer in the chart", "redis.auth.password: subchart redis dropped from the chart", "redisx.a: no longer in the chart"}
+	if !slices.Equal(details, want) {
+		t.Errorf("breaking = %q, want %q", details, want)
+	}
+	if footer := "2 drops 1 subchart (redis); values under it no longer take effect."; !slices.Contains(v.Footer, footer) {
+		t.Errorf("footer = %q, want %q", v.Footer, footer)
 	}
 }
 

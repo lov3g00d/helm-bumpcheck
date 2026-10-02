@@ -2,6 +2,7 @@ package values
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -98,7 +99,7 @@ structuredConfig:
 typoKey: 1
 `)
 
-	got := Compare(oldDefaults, newDefaults, user, nil)
+	got := Compare(oldDefaults, newDefaults, user, Dependencies{})
 
 	want := Report{
 		Removed:        []string{"processor.localBlocks.flushToStorage", "structuredConfig.overrides.max_traces"},
@@ -113,7 +114,7 @@ typoKey: 1
 }
 
 func TestCompareIgnoresSpellingsHelmReadsAlike(t *testing.T) {
-	got := Compare(mustParse(t, "cpu: 1\nflag: yes\n"), mustParse(t, "cpu: 1.0\nflag: true\n"), map[string]any{}, nil)
+	got := Compare(mustParse(t, "cpu: 1\nflag: yes\n"), mustParse(t, "cpu: 1.0\nflag: true\n"), map[string]any{}, Dependencies{})
 	if !reflect.DeepEqual(got, Report{}) {
 		t.Errorf("Compare = %#v, want an empty report", got)
 	}
@@ -124,7 +125,7 @@ func TestCompareFreeformOnlyInNewChart(t *testing.T) {
 	newDefaults := mustParse(t, "metricsGenerator:\n  enabled: false\n  processor: {}\n")
 	user := mustParse(t, "metricsGenerator:\n  processor:\n    local_blocks:\n      flush_to_storage: true\n")
 
-	got := Compare(oldDefaults, newDefaults, user, nil)
+	got := Compare(oldDefaults, newDefaults, user, Dependencies{})
 	if want := []string{"metricsGenerator.processor.local_blocks.flush_to_storage"}; !reflect.DeepEqual(got.Freeform, want) {
 		t.Errorf("Freeform = %v, want %v", got.Freeform, want)
 	}
@@ -177,7 +178,7 @@ configuration:
 tolerations: []
 port: "9090"
 `)
-	got := Compare(oldDefaults, newDefaults, user, nil)
+	got := Compare(oldDefaults, newDefaults, user, Dependencies{})
 
 	want := []TypeChange{
 		{Path: "configuration.backupStorageLocation", Old: "map", New: "list", Keys: []string{
@@ -234,7 +235,7 @@ structuredConfig:
   overrides:
     max: 1
 `)
-	got := Compare(defaults, defaults, user, nil)
+	got := Compare(defaults, defaults, user, Dependencies{})
 
 	wantStandard := []string{`ingress.annotations["kubernetes.io/ingress.class"]`, `nodeSelector["cloud.google.com/gke-spot"]`, "resources.limits.cpu"}
 	if !reflect.DeepEqual(got.Standard, wantStandard) {
@@ -258,6 +259,7 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 		removed, freeform, standard []string
 		undeclared, typeChanged     []string
 		defaultChanged, subcharts   []string
+		dropped, removedDeps        []string
 	}{
 		{
 			name:     "free-form block that gains defaults is not removed",
@@ -423,6 +425,33 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			removed:   []string{"redis.auth.enabled"},
 		},
 		{
+			name:        "keys under a subchart the new chart dropped are removed",
+			old:         "redis:\n  enabled: true\n",
+			new:         "replicas: 1\n",
+			user:        "redis:\n  auth:\n    password: x\n  master:\n    persistence:\n      size: 8Gi\n",
+			dropped:     []string{"redis"},
+			removed:     []string{"redis.auth.password", "redis.master.persistence.size"},
+			removedDeps: []string{"redis"},
+		},
+		{
+			name:        "keys under an aliased subchart the new chart dropped are removed",
+			old:         "replicas: 1\n",
+			new:         "replicas: 1\n",
+			user:        "cache:\n  size: 1\nother: 1\n",
+			dropped:     []string{"cache"},
+			removed:     []string{"cache.size"},
+			undeclared:  []string{"other"},
+			removedDeps: []string{"cache"},
+		},
+		{
+			name:       "a subchart in both versions keeps its keys undeclared",
+			old:        "redis:\n  enabled: true\n",
+			new:        "replicas: 1\n",
+			user:       "redis:\n  auth:\n    password: x\n",
+			subcharts:  []string{"redis"},
+			undeclared: []string{"redis.auth.password"},
+		},
+		{
 			name:      "standard block under a subchart stays standard",
 			old:       "postgresql:\n  resources: {}\n",
 			new:       "postgresql:\n  resources: {}\n",
@@ -433,7 +462,7 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user), tt.subcharts)
+			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user), Dependencies{Old: slices.Concat(tt.subcharts, tt.dropped), New: tt.subcharts})
 			check := func(field string, got, want []string) {
 				if len(got) == 0 && len(want) == 0 {
 					return
@@ -455,6 +484,7 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			}
 			check("TypeChanged", typed, tt.typeChanged)
 			check("DefaultChanged", changed, tt.defaultChanged)
+			check("RemovedDependencies", got.RemovedDependencies, tt.removedDeps)
 		})
 	}
 }
@@ -555,7 +585,7 @@ func TestCompareMeaningChanged(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user), nil)
+			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user), Dependencies{})
 			if !reflect.DeepEqual(got.MeaningChanged, tt.want) {
 				t.Errorf("MeaningChanged = %#v, want %#v", got.MeaningChanged, tt.want)
 			}

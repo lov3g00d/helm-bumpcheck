@@ -22,7 +22,7 @@ BREAKING
 
 For the keys in your values files, against the old and new chart:
 
-- **removed**: you set a key the new chart no longer declares.
+- **removed**: you set a key the new chart no longer declares, or a key under a subchart the new chart no longer depends on.
 - **type changed**: a block you set changed between map, list and scalar.
 - **render**: the new chart fails `helm template` with your values while the old one rendered.
 - **default changed**: a default you rely on changed.

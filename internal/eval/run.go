@@ -129,7 +129,7 @@ func (r Runner) compare(ctx context.Context, c Case, user map[string]any) (value
 	if err != nil {
 		return values.Report{}, err
 	}
-	return values.Compare(oldChart.Defaults, newChart.Defaults, user, newChart.Meta.DependencyNames()), nil
+	return values.Compare(oldChart.Defaults, newChart.Defaults, user, values.Dependencies{Old: oldChart.Meta.DependencyNames(), New: newChart.Meta.DependencyNames()}), nil
 }
 
 type Side struct {

@@ -29,6 +29,7 @@
     "a",
     "b"
   ],
+  "removedDependencies": null,
   "render": {
     "oldOk": true,
     "newOk": false,

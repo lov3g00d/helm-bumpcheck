@@ -39,6 +39,22 @@ type MeaningChange struct {
 	Siblings []string `json:"siblings,omitempty"`
 }
 
+type Dependencies struct {
+	Old []string
+	New []string
+}
+
+func (d Dependencies) Removed() []string {
+	var out []string
+	for _, name := range d.Old {
+		if !slices.Contains(d.New, name) && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 type Report struct {
 	Removed        []string        `json:"removed"`
 	TypeChanged    []TypeChange    `json:"typeChanged"`
@@ -48,6 +64,8 @@ type Report struct {
 	Undeclared     []string        `json:"undeclared"`
 	DefaultChanged []Change        `json:"defaultChanged"`
 	Added          []string        `json:"added"`
+
+	RemovedDependencies []string `json:"removedDependencies"`
 }
 
 func (r Report) NoteKeys() []string {
@@ -260,9 +278,9 @@ func (r *Report) classify(oldDefaults, newDefaults map[string]any, leaf Leaf, pa
 	r.Undeclared = append(r.Undeclared, path)
 }
 
-func Compare(oldDefaults, newDefaults, user map[string]any, subcharts []string) Report {
+func Compare(oldDefaults, newDefaults, user map[string]any, deps Dependencies) Report {
 	oldL, newL, userL := Flatten(oldDefaults), Flatten(newDefaults), Flatten(user)
-	var r Report
+	r := Report{RemovedDependencies: deps.Removed()}
 	typed := map[string]*TypeChange{}
 
 	for p, leaf := range userL {
@@ -285,7 +303,11 @@ func Compare(oldDefaults, newDefaults, user map[string]any, subcharts []string) 
 			}
 			continue
 		}
-		subchart := leaf.Segments[0] == "global" || slices.Contains(subcharts, leaf.Segments[0])
+		if slices.Contains(r.RemovedDependencies, leaf.Segments[0]) {
+			r.Removed = append(r.Removed, p)
+			continue
+		}
+		subchart := leaf.Segments[0] == "global" || slices.Contains(deps.New, leaf.Segments[0])
 		r.classify(oldDefaults, newDefaults, leaf, p, inOld, subchart)
 	}
 

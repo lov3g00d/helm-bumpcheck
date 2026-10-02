@@ -36,6 +36,7 @@
         "a",
         "b"
       ],
+      "removedDependencies": null,
       "render": {
         "oldOk": true,
         "newOk": false,
@@ -112,7 +113,8 @@
       "standard": null,
       "undeclared": null,
       "defaultChanged": null,
-      "added": null
+      "added": null,
+      "removedDependencies": null
     }
   ],
   "skipped": [

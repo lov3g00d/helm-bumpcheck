@@ -109,7 +109,7 @@ func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, old
 		Chart: cs.spec.name, From: cs.spec.from, To: cs.spec.to,
 		AppFrom: cs.old.Meta.AppVersion, AppTo: cs.new.Meta.AppVersion,
 		Dependencies: subcharts,
-		Report:       values.Compare(cs.old.Defaults, cs.new.Defaults, user, subcharts),
+		Report:       values.Compare(cs.old.Defaults, cs.new.Defaults, user, values.Dependencies{Old: cs.old.Meta.DependencyNames(), New: subcharts}),
 	}
 
 	if o.render {

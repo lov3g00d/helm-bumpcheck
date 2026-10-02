@@ -60,7 +60,7 @@ func build(res Report) view {
 		v.Breaking = append(v.Breaking, row)
 	}
 	for _, k := range r.Removed {
-		row := row{Kind: "removed", Path: k, Detail: "no longer in the chart"}
+		row := row{Kind: "removed", Path: k, Detail: removedDetail(k, r.RemovedDependencies)}
 		row.Evidence, row.More = pickEvidence(idx, []string{k})
 		v.Breaking = append(v.Breaking, row)
 	}
@@ -110,6 +110,15 @@ func build(res Report) view {
 		}
 	}
 	return v
+}
+
+func removedDetail(path string, dropped []string) string {
+	for _, dep := range dropped {
+		if prefix := values.Path([]string{dep}); path == prefix || strings.HasPrefix(path, prefix+".") || strings.HasPrefix(path, prefix+"[") {
+			return "subchart " + dep + " dropped from the chart"
+		}
+	}
+	return "no longer in the chart"
 }
 
 func describeMeaning(m values.MeaningChange) string {
@@ -204,6 +213,10 @@ func footer(res Report) []string {
 	if n := len(res.Dependencies); n > 0 {
 		out = append(out, fmt.Sprintf("The chart has %d %s (%s); keys under them are not compared against the subchart defaults.",
 			n, plural(n, "subchart", "subcharts"), strings.Join(res.Dependencies, ", ")))
+	}
+	if n := len(res.RemovedDependencies); n > 0 {
+		out = append(out, fmt.Sprintf("%s drops %d %s (%s); values under %s no longer take effect.",
+			res.To, n, plural(n, "subchart", "subcharts"), strings.Join(res.RemovedDependencies, ", "), plural(n, "it", "them")))
 	}
 	if n := len(res.Standard); n > 0 {
 		out = append(out, fmt.Sprintf("%d %s in standard Kubernetes blocks (%s) not listed. Use -o json to list them.",

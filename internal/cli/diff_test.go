@@ -362,3 +362,31 @@ func TestDiffKeysUnderSubchartsAreNotRemoved(t *testing.T) {
 		t.Errorf("dependencies = %q", r.Dependencies)
 	}
 }
+
+func TestDiffKeysUnderADroppedSubchartAreRemoved(t *testing.T) {
+	g := newGitFixture(t)
+	g.write(map[string]string{
+		"charts/app/Chart.yaml":       "apiVersion: v2\nname: app\nversion: 1.0.0\ndependencies:\n  - name: redis\n    version: 19.0.0\n    repository: https://charts.example\n",
+		"charts/app/values.yaml":      "redis:\n  enabled: true\n",
+		"charts/app/values_prod.yaml": "redis:\n  auth:\n    password: x\n",
+	})
+	base := g.commit("base")
+	g.write(map[string]string{
+		"charts/app/Chart.yaml":  "apiVersion: v2\nname: app\nversion: 2.0.0\n",
+		"charts/app/values.yaml": "replicas: 1\n",
+	})
+	head := g.commit("drop redis")
+
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--fail-on", "removed")
+	if !errors.Is(err, ErrFindings) {
+		t.Fatalf("err = %v, want findings\n%s", err, out)
+	}
+	for _, want := range []string{
+		"  removed       redis.auth.password  subchart redis dropped from the chart",
+		"2.0.0 drops 1 subchart (redis); values under it no longer take effect.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
