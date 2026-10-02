@@ -230,3 +230,41 @@ func TestReleasesUnauthenticatedHint(t *testing.T) {
 		t.Errorf("err = %v, want no hint when a token is set", err)
 	}
 }
+
+func TestReleasesRetriesRateLimits(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-GitHub-Api-Version"); got != "2022-11-28" {
+			t.Errorf("X-GitHub-Api-Version = %q", got)
+		}
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			http.Error(w, `{"message":"secondary rate limit"}`, http.StatusForbidden)
+			return
+		}
+		json.NewEncoder(w).Encode([]ghRelease{{TagName: "v2.0.0", Body: "- x"}})
+	}))
+	defer srv.Close()
+
+	g := &GitHub{BaseURL: srv.URL, Token: "t", HTTP: &http.Client{Timeout: 5 * time.Second}, PerPage: 100, MaxPages: 1, MaxRetries: 2, MaxWait: time.Second}
+	got, err := g.Releases(context.Background(), "acme/app", "", "1.0.0", "2.0.0")
+	if err != nil || len(got) != 1 || calls.Load() != 2 {
+		t.Errorf("got %v, err %v, calls %d", got, err, calls.Load())
+	}
+}
+
+func TestReleasesGivesUpOnLongRateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Ratelimit-Remaining", "0")
+		w.Header().Set("X-Ratelimit-Reset", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10))
+		http.Error(w, `{"message":"API rate limit exceeded"}`, http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	g := &GitHub{BaseURL: srv.URL, Token: "t", HTTP: &http.Client{Timeout: 5 * time.Second}, PerPage: 100, MaxPages: 1, MaxRetries: 2, MaxWait: time.Second}
+	start := time.Now()
+	_, err := g.Releases(context.Background(), "acme/app", "", "1.0.0", "2.0.0")
+	if err == nil || !strings.Contains(err.Error(), "rate limited for") || time.Since(start) > 2*time.Second {
+		t.Errorf("err = %v after %s", err, time.Since(start))
+	}
+}

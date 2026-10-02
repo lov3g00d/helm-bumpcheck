@@ -8,14 +8,18 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/mod/semver"
+
+	"github.com/lov3g00d/helm-bumpcheck/internal/httpretry"
 )
 
 const (
 	DefaultGitHubURL = "https://api.github.com"
+	apiVersion       = "2022-11-28"
 	maxResponseSize  = 20 << 20
 )
 
@@ -35,11 +39,13 @@ type ghRelease struct {
 }
 
 type GitHub struct {
-	BaseURL  string
-	Token    string
-	HTTP     *http.Client
-	PerPage  int
-	MaxPages int
+	BaseURL    string
+	Token      string
+	HTTP       *http.Client
+	PerPage    int
+	MaxPages   int
+	MaxRetries int
+	MaxWait    time.Duration
 }
 
 func NewGitHubFromEnv() *GitHub {
@@ -52,11 +58,13 @@ func NewGitHubFromEnv() *GitHub {
 		baseURL = DefaultGitHubURL
 	}
 	return &GitHub{
-		BaseURL:  baseURL,
-		Token:    token,
-		HTTP:     &http.Client{Timeout: 30 * time.Second},
-		PerPage:  100,
-		MaxPages: 10,
+		BaseURL:    baseURL,
+		Token:      token,
+		HTTP:       &http.Client{Timeout: 30 * time.Second},
+		PerPage:    100,
+		MaxPages:   10,
+		MaxRetries: 2,
+		MaxWait:    time.Minute,
 	}
 }
 
@@ -102,19 +110,35 @@ func (g *GitHub) Releases(ctx context.Context, repo, tagPrefix, from, to string)
 }
 
 func (g *GitHub) page(ctx context.Context, repo string, page int) ([]ghRelease, error) {
+	for attempt := 0; ; attempt++ {
+		out, wait, err := g.fetch(ctx, repo, page)
+		if err == nil || wait < 0 || attempt >= g.MaxRetries || ctx.Err() != nil {
+			return out, err
+		}
+		if wait > g.MaxWait {
+			return nil, fmt.Errorf("%w (rate limited for %s, more than the %s this tool waits)", err, wait.Round(time.Second), g.MaxWait)
+		}
+		if err := httpretry.Sleep(ctx, wait); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func (g *GitHub) fetch(ctx context.Context, repo string, page int) ([]ghRelease, time.Duration, error) {
 	url := fmt.Sprintf("%s/repos/%s/releases?per_page=%d&page=%d", g.BaseURL, repo, g.PerPage, page)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, -1, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	if g.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+g.Token)
 	}
 
 	resp, err := g.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, httpretry.Backoff(time.Second, 10*time.Second, 0), err
 	}
 	defer resp.Body.Close()
 
@@ -125,12 +149,33 @@ func (g *GitHub) page(ctx context.Context, repo string, page int) ([]ghRelease, 
 		if g.Token == "" && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusUnprocessableEntity) {
 			err = fmt.Errorf("%w (unauthenticated: set GITHUB_TOKEN, for example GITHUB_TOKEN=$(gh auth token))", err)
 		}
-		return nil, err
+		return nil, retryWait(resp), err
 	}
 
 	var out []ghRelease
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode github releases %s page %d: %w", repo, page, err)
+		return nil, -1, fmt.Errorf("decode github releases %s page %d: %w", repo, page, err)
 	}
-	return out, nil
+	return out, -1, nil
+}
+
+func retryWait(resp *http.Response) time.Duration {
+	switch {
+	case resp.StatusCode >= 500:
+		return httpretry.Backoff(time.Second, 10*time.Second, 0)
+	case resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests:
+		return -1
+	}
+	if d, ok := httpretry.After(resp.Header, time.Now()); ok {
+		return d
+	}
+	if resp.Header.Get("X-Ratelimit-Remaining") == "0" {
+		if reset, err := strconv.ParseInt(resp.Header.Get("X-Ratelimit-Reset"), 10, 64); err == nil {
+			return max(time.Until(time.Unix(reset, 0)), 0)
+		}
+	}
+	if resp.StatusCode == http.StatusTooManyRequests || strings.Contains(strings.ToLower(resp.Header.Get("X-Ratelimit-Resource")), "secondary") {
+		return time.Minute
+	}
+	return -1
 }

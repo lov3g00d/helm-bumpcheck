@@ -11,16 +11,19 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/lov3g00d/helm-bumpcheck/internal/httpretry"
 )
 
 const (
 	DefaultBaseURL = "https://api.typesafe.ai"
-	DefaultModel   = "jev-latest"
+	DefaultModel   = "jev-1.13.0"
 	APIKeyEnv      = "TYPESAFE_API_KEY"
 	BaseURLEnv     = "TYPESAFE_BASE_URL"
+	ModelEnv       = "TYPESAFE_MODEL"
 
-	statusOverloaded = 529
-	maxResponseSize  = 10 << 20
+	maxResponseSize = 10 << 20
+	maxRetryAfter   = 30 * time.Second
 )
 
 type Question struct {
@@ -75,6 +78,7 @@ type Response struct {
 type APIError struct {
 	StatusCode int
 	Body       string
+	RetryAfter time.Duration
 }
 
 func (e *APIError) Error() string {
@@ -82,7 +86,7 @@ func (e *APIError) Error() string {
 }
 
 func (e *APIError) Retryable() bool {
-	return e.StatusCode == http.StatusTooManyRequests || e.StatusCode == statusOverloaded
+	return e.StatusCode == http.StatusRequestTimeout || e.StatusCode == http.StatusTooManyRequests || e.StatusCode >= 500
 }
 
 type Client struct {
@@ -92,6 +96,7 @@ type Client struct {
 	HTTP       *http.Client
 	MaxRetries int
 	Backoff    time.Duration
+	MaxBackoff time.Duration
 }
 
 func NewFromEnv() (*Client, error) {
@@ -103,13 +108,18 @@ func NewFromEnv() (*Client, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
+	model := os.Getenv(ModelEnv)
+	if model == "" {
+		model = DefaultModel
+	}
 	return &Client{
 		BaseURL:    baseURL,
 		APIKey:     key,
-		Model:      DefaultModel,
+		Model:      model,
 		HTTP:       &http.Client{Timeout: 30 * time.Second},
-		MaxRetries: 4,
+		MaxRetries: 2,
 		Backoff:    500 * time.Millisecond,
+		MaxBackoff: 5 * time.Second,
 	}, nil
 }
 
@@ -119,19 +129,24 @@ func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Q
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
 
-	delay := c.Backoff
 	for attempt := 0; ; attempt++ {
 		resp, err := c.post(ctx, body)
-		var apiErr *APIError
-		if err == nil || !errors.As(err, &apiErr) || !apiErr.Retryable() || attempt >= c.MaxRetries {
+		if err == nil || ctx.Err() != nil || attempt >= c.MaxRetries {
 			return resp, err
 		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(delay):
+		wait := httpretry.Backoff(c.Backoff, c.MaxBackoff, attempt)
+		var apiErr *APIError
+		if errors.As(err, &apiErr) {
+			if !apiErr.Retryable() {
+				return nil, err
+			}
+			if apiErr.RetryAfter > 0 {
+				wait = min(apiErr.RetryAfter, maxRetryAfter)
+			}
 		}
-		delay *= 2
+		if err := httpretry.Sleep(ctx, wait); err != nil {
+			return nil, err
+		}
 	}
 }
 
@@ -154,7 +169,9 @@ func (c *Client) post(ctx context.Context, body []byte) (*Response, error) {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(data))}
+		apiErr := &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(data))}
+		apiErr.RetryAfter, _ = httpretry.After(resp.Header, time.Now())
+		return nil, apiErr
 	}
 
 	var out Response

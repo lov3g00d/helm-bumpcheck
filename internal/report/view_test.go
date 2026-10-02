@@ -136,3 +136,12 @@ func TestFooterWarnsAboutSubcharts(t *testing.T) {
 		t.Errorf("footer = %q", v.Footer)
 	}
 }
+
+func TestFooterShowsModelAndFailures(t *testing.T) {
+	r := veleroReport()
+	r.Notes[0].Stats = match.Stats{Requests: 4, Failed: 1, Questions: 6, Model: "jev-1.13.0"}
+	want := "Release notes (chart): vmware-tanzu/helm-charts 3.2.0 -> 4.0.1, 2 releases, 4 entries, 6 questions, jev-1.13.0, 1 of 4 Jev requests failed"
+	if got := build(r).Footer[0]; got != want {
+		t.Errorf("footer = %q\nwant     %q", got, want)
+	}
+}

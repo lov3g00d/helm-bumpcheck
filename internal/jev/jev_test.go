@@ -203,3 +203,69 @@ func TestLiveEvaluate(t *testing.T) {
 	}
 	t.Logf("model=%s noul=%.3f usage=%+v", resp.Model, resp.Answers["concerns_key"].Noul, resp.Usage)
 }
+
+func TestRetriesServerErrorsAndTimeouts(t *testing.T) {
+	srv, calls := statusSequence(t, http.StatusBadGateway, http.StatusRequestTimeout, http.StatusOK)
+	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Errorf("calls = %d, want 3", got)
+	}
+}
+
+func TestRetriesDroppedConnection(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				conn.Close()
+			}
+			return
+		}
+		io.WriteString(w, okBody)
+	}))
+	defer srv.Close()
+
+	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+		t.Fatalf("err = %v, want success after a dropped connection", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("calls = %d, want 2", got)
+	}
+}
+
+func TestHonoursRetryAfter(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After-Ms", "150")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		io.WriteString(w, okBody)
+	}))
+	defer srv.Close()
+
+	start := time.Now()
+	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed < 150*time.Millisecond {
+		t.Errorf("retried after %s, want at least the 150ms Retry-After-Ms", elapsed)
+	}
+}
+
+func TestNewFromEnvPinsModel(t *testing.T) {
+	t.Setenv(APIKeyEnv, "k")
+	t.Setenv(ModelEnv, "")
+	c, err := NewFromEnv()
+	if err != nil || c.Model != "jev-1.13.0" || c.MaxRetries != 2 {
+		t.Errorf("client = %+v, err %v", c, err)
+	}
+	t.Setenv(ModelEnv, "jev-preview")
+	if c, _ := NewFromEnv(); c.Model != "jev-preview" {
+		t.Errorf("model override = %q", c.Model)
+	}
+}

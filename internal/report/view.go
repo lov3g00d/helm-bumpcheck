@@ -147,8 +147,15 @@ func footer(res Report) []string {
 			out = append(out, fmt.Sprintf("Release notes (%s): skipped, %s", n.Source, n.Skipped))
 			continue
 		}
-		out = append(out, fmt.Sprintf("Release notes (%s): %s %s -> %s, %d releases, %d entries, %d questions",
-			n.Source, n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions))
+		line := fmt.Sprintf("Release notes (%s): %s %s -> %s, %d releases, %d entries, %d questions",
+			n.Source, n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions)
+		if n.Stats.Model != "" {
+			line += ", " + n.Stats.Model
+		}
+		if f := n.Stats.Failed; f > 0 {
+			line += fmt.Sprintf(", %d of %d Jev requests failed", f, n.Stats.Requests)
+		}
+		out = append(out, line)
 	}
 	if n := len(res.Dependencies); n > 0 {
 		out = append(out, fmt.Sprintf("The chart has %d %s (%s); keys under them are not compared against the subchart defaults.",

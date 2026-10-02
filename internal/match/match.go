@@ -1,9 +1,11 @@
 package match
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -17,6 +19,7 @@ import (
 const (
 	minTermLen         = 4
 	DefaultConcurrency = 8
+	maxEntryChars      = 4000
 )
 
 var genericTerms = map[string]bool{
@@ -45,9 +48,11 @@ type Match struct {
 }
 
 type Stats struct {
-	Requests    int `json:"requests"`
-	Questions   int `json:"questions"`
-	InputTokens int `json:"inputTokens"`
+	Requests    int    `json:"requests"`
+	Failed      int    `json:"failed"`
+	Questions   int    `json:"questions"`
+	InputTokens int    `json:"inputTokens"`
+	Model       string `json:"model,omitempty"`
 }
 
 type Evaluator interface {
@@ -139,45 +144,59 @@ func question(key string) jev.Question {
 }
 
 func Ask(ctx context.Context, ev Evaluator, candidates []Candidate, concurrency int) ([]Match, Stats, error) {
-	results := make([][]Match, len(candidates))
-	usage := make([]int, len(candidates))
+	type outcome struct {
+		matches []Match
+		tokens  int
+		model   string
+		err     error
+	}
+	results := make([]outcome, len(candidates))
 
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(concurrency)
+	var g errgroup.Group
+	g.SetLimit(max(concurrency, 1))
 	for i, c := range candidates {
 		g.Go(func() error {
-			ms, tokens, err := askOne(gctx, ev, c)
+			ms, resp, err := askOne(ctx, ev, c)
 			if err != nil {
-				return fmt.Errorf("%s entry %q: %w", c.Entry.Release, truncate(c.Entry.Text, 60), err)
+				results[i].err = fmt.Errorf("%s entry %q: %w", c.Entry.Release, truncate(c.Entry.Text, 60), err)
+				return nil
 			}
-			results[i], usage[i] = ms, tokens
+			results[i] = outcome{matches: ms, tokens: resp.Usage.InputTokens, model: resp.Model}
 			return nil
 		})
 	}
-	if err := g.Wait(); err != nil {
+	_ = g.Wait()
+	if err := ctx.Err(); err != nil {
 		return nil, Stats{}, err
 	}
 
 	var (
-		out   []Match
-		stats Stats
+		out      []Match
+		stats    Stats
+		firstErr error
 	)
-	for i, ms := range results {
-		out = append(out, ms...)
+	for i, r := range results {
 		stats.Requests++
-		stats.Questions += len(candidates[i].Keys)
-		stats.InputTokens += usage[i]
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Probability != out[j].Probability {
-			return out[i].Probability > out[j].Probability
+		if r.err != nil {
+			stats.Failed++
+			firstErr = cmp.Or(firstErr, r.err)
+			continue
 		}
-		return out[i].Key < out[j].Key
+		out = append(out, r.matches...)
+		stats.Questions += len(candidates[i].Keys)
+		stats.InputTokens += r.tokens
+		stats.Model = cmp.Or(stats.Model, r.model)
+	}
+	if stats.Failed > 0 && stats.Failed == stats.Requests {
+		return nil, stats, fmt.Errorf("all %d Jev requests failed: %w", stats.Failed, firstErr)
+	}
+	slices.SortStableFunc(out, func(a, b Match) int {
+		return cmp.Or(cmp.Compare(b.Probability, a.Probability), cmp.Compare(a.Key, b.Key))
 	})
 	return out, stats, nil
 }
 
-func askOne(ctx context.Context, ev Evaluator, c Candidate) ([]Match, int, error) {
+func askOne(ctx context.Context, ev Evaluator, c Candidate) ([]Match, *jev.Response, error) {
 	questions := make(map[string]jev.Question, len(c.Keys))
 	for i, k := range c.Keys {
 		questions[fmt.Sprintf("k%d", i)] = question(k)
@@ -185,19 +204,19 @@ func askOne(ctx context.Context, ev Evaluator, c Candidate) ([]Match, int, error
 	state := map[string]string{
 		"release": c.Entry.Release,
 		"section": c.Entry.Section,
-		"entry":   c.Entry.Text,
+		"entry":   truncate(c.Entry.Text, maxEntryChars),
 	}
 
 	resp, err := ev.Evaluate(ctx, state, questions)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
 
 	out := make([]Match, 0, len(c.Keys))
 	for i, k := range c.Keys {
 		a, ok := resp.Answers[fmt.Sprintf("k%d", i)]
 		if !ok {
-			return nil, 0, fmt.Errorf("no answer for key %s", k)
+			return nil, nil, fmt.Errorf("no answer for key %s", k)
 		}
 		out = append(out, Match{
 			Key:         k,
@@ -207,7 +226,7 @@ func askOne(ctx context.Context, ev Evaluator, c Candidate) ([]Match, int, error
 			Text:        c.Entry.Text,
 		})
 	}
-	return out, resp.Usage.InputTokens, nil
+	return out, resp, nil
 }
 
 func truncate(s string, n int) string {

@@ -208,3 +208,59 @@ func TestSplitAllDropsBoilerplate(t *testing.T) {
 		t.Errorf("SplitAll texts = %q, want %q", texts, want)
 	}
 }
+
+type flakyEvaluator struct{}
+
+func (flakyEvaluator) Evaluate(ctx context.Context, state any, questions map[string]jev.Question) (*jev.Response, error) {
+	if strings.Contains(state.(map[string]string)["entry"], "flaky") {
+		return nil, errors.New("502 bad gateway")
+	}
+	resp := &jev.Response{Model: "jev-1.13.0", Answers: map[string]jev.Answer{}, Usage: jev.Usage{InputTokens: 10}}
+	for id := range questions {
+		resp.Answers[id] = jev.Answer{Type: "noul", Noul: 0.9}
+	}
+	return resp, nil
+}
+
+func TestAskKeepsPartialResults(t *testing.T) {
+	candidates := []Candidate{
+		{Entry: notes.Entry{Release: "v1", Text: "removed thing"}, Keys: []string{"a.key"}},
+		{Entry: notes.Entry{Release: "v2", Text: "flaky entry"}, Keys: []string{"a.key", "b.key"}},
+	}
+	got, stats, err := Ask(context.Background(), flakyEvaluator{}, candidates, 0)
+	if err != nil {
+		t.Fatalf("err = %v, want partial results", err)
+	}
+	if len(got) != 1 || got[0].Release != "v1" {
+		t.Errorf("matches = %+v", got)
+	}
+	want := Stats{Requests: 2, Failed: 1, Questions: 1, InputTokens: 10, Model: "jev-1.13.0"}
+	if stats != want {
+		t.Errorf("stats = %+v, want %+v", stats, want)
+	}
+}
+
+func TestAskTruncatesLongEntries(t *testing.T) {
+	var seen int
+	ev := evaluatorFunc(func(state any) {
+		seen = len([]rune(state.(map[string]string)["entry"]))
+	})
+	candidates := []Candidate{{Entry: notes.Entry{Release: "v1", Text: strings.Repeat("x", 10000)}, Keys: []string{"k"}}}
+	if _, _, err := Ask(context.Background(), ev, candidates, 1); err != nil {
+		t.Fatal(err)
+	}
+	if seen != maxEntryChars {
+		t.Errorf("entry sent with %d chars, want %d", seen, maxEntryChars)
+	}
+}
+
+type evaluatorFunc func(state any)
+
+func (f evaluatorFunc) Evaluate(ctx context.Context, state any, questions map[string]jev.Question) (*jev.Response, error) {
+	f(state)
+	resp := &jev.Response{Answers: map[string]jev.Answer{}}
+	for id := range questions {
+		resp.Answers[id] = jev.Answer{Type: "noul", Noul: 0.1}
+	}
+	return resp, nil
+}
