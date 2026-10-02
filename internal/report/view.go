@@ -82,15 +82,15 @@ func build(res Report) view {
 	v.Verdict = verdict(len(v.Breaking), len(v.Check), len(v.Unverified))
 	v.Why = unverifiedReason(res.Notes)
 	v.Footer = sanitizeAll(footer(res))
-	v.Title = sanitize(v.Title)
+	v.Title = Sanitize(v.Title)
 	for _, rows := range [][]row{v.Breaking, v.Check, v.Unverified} {
 		for i := range rows {
-			rows[i].Path = sanitize(rows[i].Path)
-			rows[i].Detail = sanitize(rows[i].Detail)
+			rows[i].Path = Sanitize(rows[i].Path)
+			rows[i].Detail = Sanitize(rows[i].Detail)
 			rows[i].Lines = sanitizeAll(rows[i].Lines)
 			for j := range rows[i].Evidence {
 				e := &rows[i].Evidence[j]
-				e.Release, e.Section, e.Text = sanitize(e.Release), sanitize(e.Section), sanitize(e.Text)
+				e.Release, e.Section, e.Text = Sanitize(e.Release), Sanitize(e.Section), Sanitize(e.Text)
 			}
 		}
 	}
@@ -191,7 +191,7 @@ func pickEvidence(idx map[string][]match.Match, keys []string) ([]evidence, int)
 			if cur, ok := best[id]; ok && cur.Probability >= m.Probability {
 				continue
 			}
-			best[id] = evidence{Probability: m.Probability, Release: m.Release, Section: m.Section, Text: cleanEntry(sanitize(m.Text)), Notable: notableTag(m.Section)}
+			best[id] = evidence{Probability: m.Probability, Release: m.Release, Section: m.Section, Text: cleanEntry(Sanitize(m.Text)), Notable: notableTag(m.Section)}
 		}
 	}
 	all := make([]evidence, 0, len(best))

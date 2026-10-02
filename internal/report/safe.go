@@ -16,7 +16,7 @@ const (
 	zwj  = '\u200d'
 )
 
-func sanitize(s string) string {
+func Sanitize(s string) string {
 	s = ansiEscape.ReplaceAllString(s, "")
 	return strings.Map(func(r rune) rune {
 		switch {
@@ -38,7 +38,7 @@ func sanitize(s string) string {
 func sanitizeAll(lines []string) []string {
 	out := make([]string, len(lines))
 	for i, l := range lines {
-		out[i] = sanitize(l)
+		out[i] = Sanitize(l)
 	}
 	return out
 }

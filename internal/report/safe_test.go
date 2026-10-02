@@ -22,7 +22,7 @@ func TestSanitizeUnicodeFormatCharacters(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := sanitize(tt.in); got != tt.want {
+			if got := Sanitize(tt.in); got != tt.want {
 				t.Errorf("sanitize(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})

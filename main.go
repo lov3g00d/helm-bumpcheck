@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/cli"
+	"github.com/lov3g00d/helm-bumpcheck/internal/report"
 )
 
 var version string
@@ -29,13 +31,20 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	err := cli.NewRootCmd(buildVersion()).ExecuteContext(ctx)
 	stop()
+	if code := exitCode(os.Stderr, err); code != 0 {
+		os.Exit(code)
+	}
+}
+
+func exitCode(stderr io.Writer, err error) int {
 	switch {
 	case err == nil:
+		return 0
 	case errors.Is(err, cli.ErrFindings):
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		fmt.Fprintln(stderr, report.Sanitize(err.Error()))
+		return 2
 	default:
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "Error:", report.Sanitize(err.Error()))
+		return 1
 	}
 }

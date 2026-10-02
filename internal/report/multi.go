@@ -70,7 +70,7 @@ func writeBatchText(w io.Writer, b Batch) error {
 		}
 		fmt.Fprintf(&sb, "\n%s\n", group.name)
 		for _, s := range group.items {
-			fmt.Fprintf(&sb, "  %s: %s\n", sanitize(s.Path), sanitize(s.Reason))
+			fmt.Fprintf(&sb, "  %s: %s\n", Sanitize(s.Path), Sanitize(s.Reason))
 		}
 	}
 	_, err := io.WriteString(w, sb.String())
