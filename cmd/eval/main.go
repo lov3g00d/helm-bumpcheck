@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/eval"
+	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
 	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
 	"github.com/lov3g00d/helm-bumpcheck/internal/notes"
 )
@@ -49,9 +50,13 @@ func run(ctx context.Context, w io.Writer, cfg config) error {
 		return err
 	}
 
+	h, err := helm.Detect()
+	if err != nil {
+		return err
+	}
 	gh := notes.NewGitHubFromEnv()
 	gh.MaxPages = cfg.maxPages
-	r := eval.Runner{GitHub: gh, Threshold: cfg.threshold}
+	r := eval.Runner{Helm: h, GitHub: gh, Threshold: cfg.threshold}
 	if !cfg.skipJev {
 		client, err := jev.NewFromEnv()
 		if err != nil {

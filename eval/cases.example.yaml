@@ -1,9 +1,10 @@
 cases:
-  - name: tempo-2.9-to-3.0-localblocks
-    appRepo: grafana/tempo
-    from: 2.9.0
-    to: 3.0.0
-    keys:
-      - tempo.metricsGenerator.processor.local_blocks.flush_to_storage
-    affected:
-      - tempo.metricsGenerator.processor.local_blocks.flush_to_storage
+  - name: tempo-1.10.0-to-1.24.4-example
+    split: tune
+    chart: {repo: https://grafana.github.io/helm-charts, name: tempo}
+    appRepo: grafana/helm-charts
+    tagPrefix: "tempo-"
+    from: "1.10.0"
+    to: "1.24.4"
+    valuesFile: ../examples/tempo-values.yaml
+    affected: []

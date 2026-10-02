@@ -129,4 +129,6 @@ task test:live   # tests against the real GitHub and TypeSafe APIs
 task eval        # compare Jev with keyword matching on eval/cases.yaml
 ```
 
+Each eval case pins a chart, two versions and a values file taken from a public GitOps repository at the commit before the bump. The eval pulls both versions, runs the same comparison as the CLI and sends Jev only the keys the CLI would send. Cases are labelled per key and per release-note entry, and split into `tune` and `holdout`: the threshold is picked on `tune` and reported on `holdout`. `task eval -- -skip-jev` scores the keyword baseline without calling TypeSafe.
+
 `go test ./internal/report -update` rewrites the golden files after an intended output change.

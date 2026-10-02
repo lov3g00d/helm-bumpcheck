@@ -1,0 +1,40 @@
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 150Mi
+initContainers:
+  - name: velero-plugin-for-gcp
+    image: raspbernetes/velero-gcp-plugin:v1.6.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+  - name: velero-plugin-for-openebs
+    image: openebs/velero-plugin:3.4.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+upgradeCRDs: false
+credentials:
+  existingSecret: cloud-credentials
+configuration:
+  provider: gcp
+  backupStorageLocation:
+    name: default
+    bucket: raspbernetes-velero-backups
+  volumeSnapshotLocation:
+    provider: openebs.io/cstor-blockstore
+    name: default
+    config:
+      bucket: raspbernetes-openebs-backups
+      prefix: cstor
+      namespace: openebs
+      provider: gcp
+schedules:
+  daily-backup:
+    schedule: 0 6 * * *
+    template:
+      ttl: 120h
