@@ -71,15 +71,12 @@ func truncateMarkdown(s string, limit int) string {
 	if len(s) <= limit {
 		return s
 	}
-	cut := strings.LastIndexByte(s[:limit], '\n')
-	if cut < 0 {
-		cut = 0
-	}
+	cut := max(strings.LastIndexByte(s[:limit], '\n'), 0)
 	s = s[:cut]
 
 	var fence string
 	open := 0
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		switch {
 		case fence != "" && t == fence:

@@ -305,7 +305,7 @@ func TestExtractIgnoresExportAttributes(t *testing.T) {
 	}
 
 	want := map[string]bool{}
-	for _, f := range strings.Split(r.git("ls-tree", "-r", "--name-only", rev, "--", "charts/app"), "\n") {
+	for f := range strings.SplitSeq(r.git("ls-tree", "-r", "--name-only", rev, "--", "charts/app"), "\n") {
 		want[f] = true
 		got, err := os.ReadFile(filepath.Join(dest, filepath.FromSlash(f)))
 		if err != nil {

@@ -243,7 +243,7 @@ func TestDiffRendersOldChartWithBaseValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	var oldRender string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.Contains(line, "/base/") && strings.Contains(line, "values_prod.yaml") {
 			oldRender = line
 		}

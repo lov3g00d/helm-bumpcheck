@@ -150,7 +150,7 @@ func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) erro
 
 func cleanRenderError(stderr string) string {
 	var kept []string
-	for _, line := range strings.Split(stderr, "\n") {
+	for line := range strings.SplitSeq(stderr, "\n") {
 		t := strings.TrimSpace(line)
 		switch {
 		case t == "",

@@ -79,7 +79,7 @@ func (r Repo) files(ctx context.Context, rev string) (map[string]bool, error) {
 
 func splitNUL(out []byte) []string {
 	var names []string
-	for _, f := range strings.Split(string(out), "\x00") {
+	for f := range strings.SplitSeq(string(out), "\x00") {
 		if f != "" {
 			names = append(names, f)
 		}

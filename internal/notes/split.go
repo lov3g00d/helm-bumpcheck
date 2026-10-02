@@ -25,7 +25,7 @@ func Split(r Release) []Entry {
 		}
 	}
 
-	for _, line := range strings.Split(r.Body, "\n") {
+	for line := range strings.SplitSeq(r.Body, "\n") {
 		line = strings.TrimRight(line, " \t\r")
 		trimmed := strings.TrimSpace(line)
 
@@ -83,8 +83,8 @@ func stripBullet(s string) string {
 	if !isBullet(s) {
 		return s
 	}
-	if i := strings.Index(s, " "); i >= 0 {
-		return strings.TrimSpace(s[i+1:])
+	if _, after, ok := strings.Cut(s, " "); ok {
+		return strings.TrimSpace(after)
 	}
 	return s
 }
