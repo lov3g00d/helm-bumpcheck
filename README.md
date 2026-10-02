@@ -48,6 +48,8 @@ helm plugin uninstall bumpcheck
 helm plugin install https://github.com/lov3g00d/helm-bumpcheck --version vX.Y.Z
 ```
 
+On Helm 4, add `--verify=false` to the install as above.
+
 If the install hook fails, for example on a network error, Helm keeps the plugin registered without a binary and the next install stops at `plugin already exists`. Run `helm plugin uninstall bumpcheck` first, then install again.
 
 To remove the plugin: `helm plugin uninstall bumpcheck`.
