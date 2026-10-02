@@ -20,6 +20,11 @@ type evidence struct {
 	Notable     string
 }
 
+type noteMatch struct {
+	match.Match
+	Repo string
+}
+
 type row struct {
 	Kind     string
 	Path     string
@@ -177,27 +182,27 @@ func footer(res Report) []string {
 	return out
 }
 
-func evidenceIndex(notes []*Notes) map[string][]match.Match {
-	idx := map[string][]match.Match{}
+func evidenceIndex(notes []*Notes) map[string][]noteMatch {
+	idx := map[string][]noteMatch{}
 	for _, n := range notes {
 		for _, m := range n.Matches {
 			if m.Probability >= n.Threshold {
-				idx[m.Key] = append(idx[m.Key], m)
+				idx[m.Key] = append(idx[m.Key], noteMatch{Match: m, Repo: n.Repo})
 			}
 		}
 	}
 	return idx
 }
 
-func pickEvidence(idx map[string][]match.Match, keys []string) ([]evidence, int) {
+func pickEvidence(idx map[string][]noteMatch, keys []string) ([]evidence, int) {
 	best := map[string]evidence{}
 	for _, k := range keys {
 		for _, m := range idx[k] {
-			id := m.Release + "\x00" + m.Text
+			id := m.Repo + "\x00" + m.Release + "\x00" + m.Text
 			if cur, ok := best[id]; ok && cur.Probability >= m.Probability {
 				continue
 			}
-			best[id] = evidence{Probability: m.Probability, Release: m.Release, Section: m.Section, Text: cleanEntry(Sanitize(m.Text)), Notable: notableTag(m.Section)}
+			best[id] = evidence{Probability: m.Probability, Release: m.Release, Section: m.Section, Text: cleanEntry(Sanitize(m.Text), m.Repo), Notable: notableTag(m.Section)}
 		}
 	}
 	all := make([]evidence, 0, len(best))

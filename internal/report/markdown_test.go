@@ -6,6 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/lov3g00d/helm-bumpcheck/internal/match"
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
@@ -115,6 +116,50 @@ func TestMarkdownLineBreaksDoNotEscapeInlineSpans(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := "### helm bumpcheck: `c 1 -> 2  @octocat please merge <img src=x>`\n\n**"; !strings.Contains(b.String(), want) {
+		t.Errorf("markdown missing %q:\n%s", want, b.String())
+	}
+}
+
+func TestMarkdownLinksNoteRefsWithoutBacklinks(t *testing.T) {
+	r := veleroReport()
+	r.Notes[0].Matches[0].Text = "Fix crash (#1234), see grafana/loki#9 and https://github.com/grafana/tempo/pull/3805"
+	var b bytes.Buffer
+	if err := WriteMarkdown(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	want := "What's Changed: Fix crash ([vmware-tanzu/helm-charts#1234](https://redirect.github.com/vmware-tanzu/helm-charts/issues/1234)), " +
+		"see [grafana/loki#9](https://redirect.github.com/grafana/loki/issues/9) and [grafana/tempo#3805](https://redirect.github.com/grafana/tempo/issues/3805)\n"
+	if !strings.Contains(b.String(), want) {
+		t.Errorf("markdown missing %q:\n%s", want, b.String())
+	}
+
+	var text bytes.Buffer
+	if err := WriteText(&text, r); err != nil {
+		t.Fatal(err)
+	}
+	if want := "What's Changed: Fix crash (vmware-tanzu/helm-charts#1234), see grafana/loki#9 and grafana/tempo#3805\n"; !strings.Contains(text.String(), want) {
+		t.Errorf("text missing %q:\n%s", want, text.String())
+	}
+}
+
+func TestMdIssueLinksLeavesEntitiesAndPathsAlone(t *testing.T) {
+	for _, s := range []string{"ping &#64;user", "x/y&#64;z", "a/b/c#3", "see #12"} {
+		if got := mdIssueLinks(s); got != s {
+			t.Errorf("mdIssueLinks(%q) = %q", s, got)
+		}
+	}
+}
+
+func TestMarkdownNoteRefsUseTheirOwnRepo(t *testing.T) {
+	r := veleroReport()
+	r.Notes[1] = &Notes{Source: "app", Repo: "vmware-tanzu/velero", Threshold: 0.5, Matches: []match.Match{
+		{Key: "configuration.provider", Probability: 0.9, Release: "v1.11.0", Text: "Drop the provider field (#42)"},
+	}}
+	var b bytes.Buffer
+	if err := WriteMarkdown(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Drop the provider field ([vmware-tanzu/velero#42](https://redirect.github.com/vmware-tanzu/velero/issues/42))\n"; !strings.Contains(b.String(), want) {
 		t.Errorf("markdown missing %q:\n%s", want, b.String())
 	}
 }

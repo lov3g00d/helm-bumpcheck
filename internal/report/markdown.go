@@ -3,6 +3,7 @@ package report
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -10,7 +11,10 @@ const maxMarkdownLen = 60000
 
 const Marker = "<!-- helm-bumpcheck -->"
 
-var lineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+var (
+	lineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+	issueRef   = regexp.MustCompile(`(^|[^\w./-])([\w.-]+/[\w.-]+)#(\d+)\b`)
+)
 
 func WriteMarkdown(w io.Writer, res Report) error {
 	v := build(res)
@@ -85,7 +89,7 @@ func mdSection(b *strings.Builder, name string, rows []row, details bool) {
 			if e.Section != "" {
 				where += " " + e.Section
 			}
-			fmt.Fprintf(&more, "  - note %.2f, %s: %s\n", e.Probability, mdText(where), mdText(e.Text))
+			fmt.Fprintf(&more, "  - note %.2f, %s: %s\n", e.Probability, mdText(where), mdIssueLinks(mdText(e.Text)))
 		}
 		if r.More > 0 {
 			fmt.Fprintf(&more, "  - %d more %s in -o json\n", r.More, plural(r.More, "note", "notes"))
@@ -102,6 +106,10 @@ func mdCode(s string) string {
 
 func mdCodeCell(s string) string {
 	return strings.ReplaceAll(mdCode(s), "|", `\|`)
+}
+
+func mdIssueLinks(s string) string {
+	return issueRef.ReplaceAllString(s, "${1}[${2}#${3}](https://redirect.github.com/${2}/issues/${3})")
 }
 
 func mdCell(s string) string {
