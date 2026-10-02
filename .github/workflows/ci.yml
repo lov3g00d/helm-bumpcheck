@@ -71,13 +71,33 @@ jobs:
         with:
           name: release
           path: ${{ runner.temp }}/mirror/v${{ steps.plugin.outputs.version }}
+      - name: temporary helm data home
+        run: echo "HELM_DATA_HOME=$(mktemp -d)" >> "$GITHUB_ENV"
       - name: install from the snapshot release and run as a plugin
         env:
           VERSION: ${{ steps.plugin.outputs.version }}
         run: |
-          HELM_DATA_HOME="$(mktemp -d)"
-          export HELM_DATA_HOME
           HELM_BUMPCHECK_RELEASE_URL="file://$RUNNER_TEMP/mirror" helm plugin install .
           test "$(helm bumpcheck --version)" = "helm-bumpcheck version $VERSION"
           test "$(helm __complete bumpcheck -o '' 2>/dev/null)" = "$(printf 'json\nmarkdown\ntext\n:4')"
           helm bumpcheck --help
+      - name: check a chart bump with the real helm
+        run: |
+          repo="$RUNNER_TEMP/bump"
+          mkdir -p "$repo/app/templates"
+          git -C "$repo" init -q -b main
+          printf 'apiVersion: v2\nname: app\nversion: 1.0.0\n' > "$repo/app/Chart.yaml"
+          printf 'legacy:\n  enabled: false\n' > "$repo/app/values.yaml"
+          printf 'legacy:\n  enabled: true\n' > "$repo/app/values-prod.yaml"
+          printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: app\n' > "$repo/app/templates/configmap.yaml"
+          git -C "$repo" add -A
+          git -C "$repo" -c user.name=ci -c user.email=ci@example.com commit -qm base
+          printf 'apiVersion: v2\nname: app\nversion: 2.0.0\n' > "$repo/app/Chart.yaml"
+          printf 'replicas: 1\n' > "$repo/app/values.yaml"
+          printf '{{- if .Values.legacy }}{{ fail "legacy was removed" }}{{- end }}\n' > "$repo/app/templates/guard.yaml"
+          git -C "$repo" add -A
+          git -C "$repo" -c user.name=ci -c user.email=ci@example.com commit -qm bump
+          code=0
+          helm bumpcheck diff -C "$repo" --base HEAD~1 -o json --fail-on removed > "$RUNNER_TEMP/report.json" || code=$?
+          test "$code" = 2
+          jq -e '.reports[0] | .removed == ["legacy.enabled"] and .render.oldOk and (.render.newOk | not) and (.render.newError | contains("legacy was removed"))' "$RUNNER_TEMP/report.json"
