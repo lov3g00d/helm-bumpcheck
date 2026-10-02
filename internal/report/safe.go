@@ -11,6 +11,11 @@ var (
 	mention    = regexp.MustCompile(`(^|[^\w@])@([A-Za-z0-9])`)
 )
 
+const (
+	zwnj = '\u200c'
+	zwj  = '\u200d'
+)
+
 func sanitize(s string) string {
 	s = ansiEscape.ReplaceAllString(s, "")
 	return strings.Map(func(r rune) rune {
@@ -19,8 +24,12 @@ func sanitize(s string) string {
 			return r
 		case unicode.IsControl(r):
 			return -1
-		case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200E || r == 0x200F:
+		case r == zwnj || r == zwj:
+			return r
+		case unicode.Is(unicode.Cf, r):
 			return -1
+		case unicode.In(r, unicode.Zl, unicode.Zp):
+			return ' '
 		}
 		return r
 	}, s)
