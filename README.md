@@ -2,6 +2,8 @@
 
 Tells you which of your values keys a chart version bump breaks, and which release note says so, without a cluster.
 
+The checks are deterministic and run locally, with no server or Argo CD. Your values stay on your machine: with release notes on, only the key paths you set and the release-note text go to TypeSafe.
+
 ```
 $ helm bumpcheck velero --repo https://vmware-tanzu.github.io/helm-charts --from 3.2.0 --to 4.0.1 -f values.yaml
 velero 3.2.0 -> 4.0.1 (app 1.11.0)
@@ -39,6 +41,17 @@ On Helm 4, add `--verify=false`; git installs carry no signature. The install ho
 
 Without Helm's plugin manager: `go install github.com/lov3g00d/helm-bumpcheck@latest` and run `helm-bumpcheck`.
 
+To upgrade, uninstall and install the new version. `helm plugin update` does not move an install made with `--version`, because Helm leaves that checkout on a detached tag.
+
+```
+helm plugin uninstall bumpcheck
+helm plugin install https://github.com/lov3g00d/helm-bumpcheck --version vX.Y.Z
+```
+
+If the install hook fails, for example on a network error, Helm keeps the plugin registered without a binary and the next install stops at `plugin already exists`. Run `helm plugin uninstall bumpcheck` first, then install again.
+
+To remove the plugin: `helm plugin uninstall bumpcheck`.
+
 ## Use
 
 One chart, two versions:
@@ -63,6 +76,24 @@ A chart whose dependencies changed in `Chart.yaml` or `requirements.yaml` withou
 `--app-repo owner/name` reads the app's GitHub releases over the chart's `appVersion` range. `--chart-notes owner/name` reads the chart's own releases over the chart version range, with tags `CHART-<version>` by default (`--chart-tag-prefix` changes it).
 
 Both need `TYPESAFE_API_KEY`. Without it the rest of the report still runs. Only release-note text and the key paths you set are sent to TypeSafe; your values never leave the machine. `GITHUB_TOKEN` or `GH_TOKEN` raises the GitHub rate limit and is needed for large chart monorepos: without a token GitHub lists only the first 1000 releases. `--max-pages` (default 40, 10 without a token) caps the pages of 100 releases read per repo, and the report says when the listing stopped before the `from` release.
+
+## Rendered manifests
+
+helm-bumpcheck does not diff rendered manifests. [helm-diff](https://github.com/databus23/helm-diff) 3.15.7 and later does it without a cluster through `helm diff local`, given both chart directories. For a chart in git, check out the base next to your branch:
+
+```
+git worktree add ../base origin/main
+helm diff local ../base/charts/tempo charts/tempo -f charts/tempo/values-prod.yaml
+git worktree remove ../base
+```
+
+Run `helm dependency build` in both directories first if the chart has dependencies. For a chart from a repository, pull both versions:
+
+```
+helm pull tempo --repo https://grafana.github.io/helm-charts --version 1.10.0 --untar --untardir old
+helm pull tempo --repo https://grafana.github.io/helm-charts --version 1.24.4 --untar --untardir new
+helm diff local old/tempo new/tempo -f values.yaml
+```
 
 ## Exit codes
 
