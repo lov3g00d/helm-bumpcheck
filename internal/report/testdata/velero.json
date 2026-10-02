@@ -1,0 +1,93 @@
+{
+  "chart": "velero",
+  "from": "3.2.0",
+  "to": "4.0.1",
+  "appFrom": "1.10.0",
+  "appTo": "1.10.0",
+  "removed": [
+    "configuration.provider"
+  ],
+  "typeChanged": [
+    {
+      "path": "configuration.backupStorageLocation",
+      "old": "map",
+      "new": "list",
+      "keys": [
+        "configuration.backupStorageLocation.bucket",
+        "configuration.backupStorageLocation.name"
+      ]
+    }
+  ],
+  "freeform": [
+    "schedules.daily.schedule"
+  ],
+  "standard": null,
+  "undeclared": null,
+  "defaultChanged": null,
+  "added": [
+    "a",
+    "b"
+  ],
+  "render": {
+    "oldOk": true,
+    "newOk": false,
+    "newError": "Error: execution error at (velero/templates/NOTES.txt:78:4):\nERROR: Please make .configuration.backupStorageLocation from map to slice"
+  },
+  "notes": [
+    {
+      "source": "chart",
+      "repo": "vmware-tanzu/helm-charts",
+      "from": "3.2.0",
+      "to": "4.0.1",
+      "releases": 2,
+      "entries": 4,
+      "threshold": 0.5,
+      "stats": {
+        "requests": 0,
+        "failed": 0,
+        "questions": 8,
+        "inputTokens": 0
+      },
+      "matches": [
+        {
+          "key": "configuration.backupStorageLocation.bucket",
+          "probability": 0.71,
+          "release": "velero-4.0.0",
+          "section": "What's Changed",
+          "text": "[velero] Add support for multiple backupstoragelocations and volumesnapshotlocations by @bsteinm2 in https://github.com/vmware-tanzu/helm-charts/pull/413"
+        },
+        {
+          "key": "configuration.backupStorageLocation.name",
+          "probability": 0.7,
+          "release": "velero-4.0.0",
+          "section": "What's Changed",
+          "text": "[velero] Add support for multiple backupstoragelocations and volumesnapshotlocations by @bsteinm2 in https://github.com/vmware-tanzu/helm-charts/pull/413"
+        },
+        {
+          "key": "schedules.daily.schedule",
+          "probability": 0.2,
+          "release": "velero-4.0.0",
+          "section": "What's Changed",
+          "text": "[velero] Add support for multiple backupstoragelocations and volumesnapshotlocations by @bsteinm2 in https://github.com/vmware-tanzu/helm-charts/pull/413"
+        }
+      ]
+    },
+    {
+      "source": "app",
+      "repo": "",
+      "from": "",
+      "to": "",
+      "releases": 0,
+      "entries": 0,
+      "threshold": 0,
+      "stats": {
+        "requests": 0,
+        "failed": 0,
+        "questions": 0,
+        "inputTokens": 0
+      },
+      "matches": null,
+      "skipped": "the version did not change"
+    }
+  ]
+}

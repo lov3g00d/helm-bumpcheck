@@ -1,11 +1,11 @@
 package values
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -247,16 +247,14 @@ func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 	}
 
 	for _, tc := range typed {
-		sort.Strings(tc.Keys)
+		slices.Sort(tc.Keys)
 		r.TypeChanged = append(r.TypeChanged, *tc)
 	}
-	sort.Slice(r.TypeChanged, func(i, j int) bool { return r.TypeChanged[i].Path < r.TypeChanged[j].Path })
-	sort.Strings(r.Removed)
-	sort.Strings(r.Freeform)
-	sort.Strings(r.Standard)
-	sort.Strings(r.Undeclared)
-	sort.Strings(r.Added)
-	sort.Slice(r.DefaultChanged, func(i, j int) bool { return r.DefaultChanged[i].Path < r.DefaultChanged[j].Path })
+	slices.SortFunc(r.TypeChanged, func(a, b TypeChange) int { return cmp.Compare(a.Path, b.Path) })
+	slices.SortFunc(r.DefaultChanged, func(a, b Change) int { return cmp.Compare(a.Path, b.Path) })
+	for _, list := range [][]string{r.Removed, r.Freeform, r.Standard, r.Undeclared, r.Added} {
+		slices.Sort(list)
+	}
 	return r
 }
 
@@ -318,6 +316,6 @@ func StandardBlocks(paths []string) []string {
 			}
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }

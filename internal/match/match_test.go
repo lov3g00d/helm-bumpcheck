@@ -267,3 +267,17 @@ func TestAskMemoReusesAnswers(t *testing.T) {
 		t.Errorf("second = %v %+v %v calls=%d, want only c.key asked", second, stats, err, ev.calls)
 	}
 }
+
+type missingAnswerEvaluator struct{}
+
+func (missingAnswerEvaluator) Evaluate(ctx context.Context, state any, questions map[string]jev.Question) (*jev.Response, error) {
+	return &jev.Response{Answers: map[string]jev.Answer{}}, nil
+}
+
+func TestAskReportsMissingAnswers(t *testing.T) {
+	candidates := []Candidate{{Entry: notes.Entry{Release: "v1", Text: "x"}, Keys: []string{"a.key"}}}
+	_, stats, err := Ask(context.Background(), missingAnswerEvaluator{}, candidates, 1)
+	if err == nil || !strings.Contains(err.Error(), "no answer for key a.key") || stats.Failed != 1 {
+		t.Errorf("err = %v stats = %+v", err, stats)
+	}
+}

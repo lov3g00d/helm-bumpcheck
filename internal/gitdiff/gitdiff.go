@@ -14,9 +14,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
+
+const waitDelay = 5 * time.Second
 
 type Repo struct {
 	Dir string
@@ -38,6 +41,7 @@ type Skip struct {
 
 func (r Repo) git(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir}, args...)...)
+	cmd.WaitDelay = waitDelay
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -197,6 +201,7 @@ func (r Repo) meta(ctx context.Context, rev, file string) (chartMeta, error) {
 
 func (r Repo) Extract(ctx context.Context, rev, dir, dest string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "archive", "--format=tar", rev, "--", dir)
+	cmd.WaitDelay = waitDelay
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()

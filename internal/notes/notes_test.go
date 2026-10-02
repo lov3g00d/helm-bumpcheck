@@ -160,8 +160,12 @@ func TestReleasesTagPrefix(t *testing.T) {
 func TestReleasesStopsAtMaxPages(t *testing.T) {
 	g, requests := fakeGitHub(t, []string{"v5", "v4", "v3", "v2", "v1"}, 1)
 	g.MaxPages = 2
-	if _, err := g.Releases(context.Background(), "grafana/tempo", "", "0.0.1", "9.0.0"); err != nil {
+	got, err := g.Releases(context.Background(), "grafana/tempo", "", "0.0.1", "9.0.0")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(tags(got), []string{"v4", "v5"}) {
+		t.Errorf("tags = %v, want only the first two pages", tags(got))
 	}
 	if got := requests.Load(); got != 2 {
 		t.Errorf("requests = %d, want 2", got)

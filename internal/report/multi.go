@@ -23,8 +23,10 @@ func WriteBatch(w io.Writer, format string, b Batch) error {
 		return enc.Encode(b)
 	case "markdown":
 		return writeBatchMarkdown(w, b)
-	default:
+	case "text":
 		return writeBatchText(w, b)
+	default:
+		return fmt.Errorf("unknown output format %q", format)
 	}
 }
 

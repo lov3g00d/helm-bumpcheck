@@ -1,0 +1,17 @@
+velero 3.2.0 -> 4.0.1 (app 1.10.0)
+Result: 3 breaking, 0 to check, 1 unverified
+
+BREAKING
+  type changed  configuration.backupStorageLocation  map -> list, 2 keys you set
+                note 0.71  velero-4.0.0 What's Changed: [velero] Add support for multiple backupstoragelocations and volumesnapshotlocations
+  removed       configuration.provider               no longer in the chart
+  render        the new chart rejects your values
+                Error: execution error at (velero/templates/NOTES.txt:78:4):
+                ERROR: Please make .configuration.backupStorageLocation from map to slice
+
+UNVERIFIED  the chart does not declare these keys and no release note matched them
+  free-form     schedules.daily.schedule
+
+Release notes (chart): vmware-tanzu/helm-charts 3.2.0 -> 4.0.1, 2 releases, 4 entries, 8 questions
+Release notes (app): skipped, the version did not change
+2 keys added in 4.0.1. Use -o json to list them.

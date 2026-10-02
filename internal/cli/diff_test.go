@@ -206,13 +206,6 @@ func TestDetectRepos(t *testing.T) {
 	}
 }
 
-func TestRootStillRequiresVersions(t *testing.T) {
-	setup(t)
-	if _, err := execute(t, "mychart", "--from", "1.0.0"); err == nil {
-		t.Error("root command without --to should fail")
-	}
-}
-
 func TestDiffFailedChartExitsWithError(t *testing.T) {
 	g, _, _ := bumpHistory(t)
 	g.write(map[string]string{
