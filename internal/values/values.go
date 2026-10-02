@@ -296,7 +296,7 @@ func Compare(oldDefaults, newDefaults, user map[string]any, deps Dependencies) R
 	typed := map[string]*TypeChange{}
 
 	for p, leaf := range userL {
-		if at, oldKind, newKind, ok := typeChange(oldDefaults, newDefaults, leaf.Segments); ok {
+		if at, oldKind, newKind, ok := typeChange(oldDefaults, newDefaults, leaf); ok {
 			path := Path(at)
 			if typed[path] == nil {
 				typed[path] = &TypeChange{Path: path, Old: oldKind, New: newKind}
@@ -448,7 +448,11 @@ func lookup(m map[string]any, segments []string) (any, bool) {
 	return cur, true
 }
 
-func typeChange(oldDefaults, newDefaults map[string]any, segments []string) ([]string, string, string, bool) {
+func typeChange(oldDefaults, newDefaults map[string]any, leaf Leaf) ([]string, string, string, bool) {
+	if leaf.Value == nil {
+		return nil, "", "", false
+	}
+	segments := leaf.Segments
 	for i := 1; i <= len(segments); i++ {
 		o, inOld := lookup(oldDefaults, segments[:i])
 		n, inNew := lookup(newDefaults, segments[:i])

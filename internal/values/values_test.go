@@ -215,7 +215,7 @@ func TestTypeChangeIgnoresNilAndMissing(t *testing.T) {
 	oldDefaults := mustParse(t, "a:\n  b:\nc: 1\n")
 	newDefaults := mustParse(t, "a:\n  b: [1]\n")
 	for _, segs := range [][]string{{"a", "b"}, {"c"}, {"x", "y"}} {
-		if _, _, _, ok := typeChange(oldDefaults, newDefaults, segs); ok {
+		if _, _, _, ok := typeChange(oldDefaults, newDefaults, Leaf{Segments: segs, Value: 1}); ok {
 			t.Errorf("typeChange(%v) reported a change", segs)
 		}
 	}
@@ -501,6 +501,12 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			old:  "replicas: 1\n",
 			new:  "global:\n  imageRegistry: docker.io\n",
 			user: "global:\n  imageRegistry: mirror.local\n",
+		},
+		{
+			name: "null over a key whose default changed kind deletes it",
+			old:  "image: nginx\n",
+			new:  "image:\n  repository: nginx\n",
+			user: "image: null\n",
 		},
 		{
 			name:      "standard block under a subchart stays standard",
