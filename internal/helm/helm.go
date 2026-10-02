@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -90,7 +91,7 @@ func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) erro
 			return ctx.Err()
 		}
 		if msg := cleanRenderError(stderr.String()); msg != "" {
-			return errors.New(msg)
+			return errors.New(c.redact(msg))
 		}
 		return err
 	}
@@ -117,6 +118,17 @@ func cleanRenderError(stderr string) string {
 	return strings.Join(kept, "\n")
 }
 
+func (c Chart) redact(s string) string {
+	if c.Repo == "" {
+		return s
+	}
+	u, err := url.Parse(c.Repo)
+	if err != nil || u.User == nil {
+		return s
+	}
+	return strings.ReplaceAll(s, c.Repo, u.Redacted())
+}
+
 func (c Chart) args(cmd ...string) []string {
 	args := append([]string{}, cmd...)
 	if c.Version != "" {
@@ -137,9 +149,9 @@ func (r Runner) show(ctx context.Context, what string, c Chart) ([]byte, error) 
 
 	out, err := cmd.Output()
 	if err != nil {
-		cmdline := "helm " + strings.Join(args, " ")
+		cmdline := c.redact("helm " + strings.Join(args, " "))
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, fmt.Errorf("%s: %w: %s", cmdline, err, msg)
+			return nil, fmt.Errorf("%s: %w: %s", cmdline, err, c.redact(msg))
 		}
 		return nil, fmt.Errorf("%s: %w", cmdline, err)
 	}

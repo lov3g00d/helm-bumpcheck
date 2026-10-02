@@ -57,7 +57,7 @@ func writeBatchText(w io.Writer, b Batch) error {
 		}
 		fmt.Fprintf(&sb, "\n%s\n", group.name)
 		for _, s := range group.items {
-			fmt.Fprintf(&sb, "  %s: %s\n", s.Path, s.Reason)
+			fmt.Fprintf(&sb, "  %s: %s\n", sanitize(s.Path), sanitize(s.Reason))
 		}
 	}
 	_, err := io.WriteString(w, sb.String())
@@ -66,7 +66,7 @@ func writeBatchText(w io.Writer, b Batch) error {
 
 func writeBatchMarkdown(w io.Writer, b Batch) error {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "## helm bumpcheck\n\n%s\n", mdText(batchSummary(b)))
+	fmt.Fprintf(&sb, "%s\n## helm bumpcheck\n\n%s\n", Marker, mdText(batchSummary(b)))
 	if len(b.Reports) > 0 {
 		sb.WriteString("\n| Chart | Values | Result |\n|---|---|---|\n")
 		for _, r := range b.Reports {
@@ -80,7 +80,7 @@ func writeBatchMarkdown(w io.Writer, b Batch) error {
 		var body strings.Builder
 		for _, r := range b.Reports {
 			body.WriteString("\n---\n\n")
-			body.WriteString(markdown(build(r), details))
+			body.WriteString(strings.TrimPrefix(markdown(build(r), details), Marker+"\n"))
 		}
 		if len(b.Failed) > 0 {
 			body.WriteString("\n**Could not be analyzed**\n\n")
@@ -102,11 +102,7 @@ func writeBatchMarkdown(w io.Writer, b Batch) error {
 		details = false
 	}
 
-	out := sb.String()
-	if len(out) > maxMarkdownLen {
-		out = out[:maxMarkdownLen] + "\n\n_Report truncated. Use -o json for the full result._\n"
-	}
-	_, err := io.WriteString(w, out)
+	_, err := io.WriteString(w, truncateMarkdown(sb.String(), maxMarkdownLen))
 	return err
 }
 

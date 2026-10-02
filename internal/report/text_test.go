@@ -38,3 +38,22 @@ func TestRenderDoesNotEscapeHTML(t *testing.T) {
 		t.Errorf("render = %s", got)
 	}
 }
+
+func TestTextStripsTerminalEscapes(t *testing.T) {
+	r := veleroReport()
+	r.Notes[0].Matches[0].Text = "fix \x1b]8;;https://evil\x07click\x1b]8;;\x07 \x1b[31mred\x1b[0m \u202eevil\u202c done"
+	r.Render.NewError = "Error: \x1b[2Jcleared"
+	var b strings.Builder
+	if err := WriteText(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, bad := range []string{"\x1b", "\u202e", "\x07"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("text output contains %q", bad)
+		}
+	}
+	if !strings.Contains(out, "fix click red evil done") || !strings.Contains(out, "Error: cleared") {
+		t.Errorf("sanitized text lost content:\n%s", out)
+	}
+}

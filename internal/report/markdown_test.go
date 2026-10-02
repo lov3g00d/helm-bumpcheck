@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
@@ -21,7 +22,7 @@ func TestWriteMarkdown(t *testing.T) {
 		"| removed | `configuration.provider` | no longer in the chart |\n",
 		"| render |  | the new chart rejects your values |\n",
 		"<details><summary>Evidence</summary>",
-		"  - note 0.71, velero-4.0.0 What's Changed: [velero] Add support for multiple backupstoragelocations and volumesnapshotlocations\n",
+		"  - note 0.71, velero-4.0.0 What's Changed: \\[velero\\] Add support for multiple backupstoragelocations and volumesnapshotlocations\n",
 		"  ```\n  Error: execution error at (velero/templates/NOTES.txt:78:4):\n",
 		"<details><summary>Unverified (1): the chart does not declare these keys and no release note matched them</summary>",
 		"- free-form `schedules.daily.schedule`\n",
@@ -65,5 +66,38 @@ func TestMarkdownCompactWhenTooLong(t *testing.T) {
 	}
 	if b.Len() > maxMarkdownLen+200 {
 		t.Errorf("markdown is %d bytes, want at most about %d", b.Len(), maxMarkdownLen)
+	}
+}
+
+func TestMarkdownNeutralizesUntrustedText(t *testing.T) {
+	r := veleroReport()
+	r.Notes[0].Matches[0].Text = "Breaking: ping @grafana/team and see [docs](https://evil.example) <img src=x>"
+	r.Render.NewError = "Error: bad\n```\n<script>alert(1)</script>"
+	var b bytes.Buffer
+	if err := WriteMarkdown(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if !strings.HasPrefix(out, Marker+"\n") {
+		t.Errorf("missing marker:\n%s", out)
+	}
+	for _, bad := range []string{"@grafana", "<img", "evil.example"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("markdown contains %q:\n%s", bad, out)
+		}
+	}
+	if !strings.Contains(out, "  ````\n") {
+		t.Errorf("render error fence not lengthened past the backticks inside:\n%s", out)
+	}
+}
+
+func TestTruncateMarkdownClosesBlocks(t *testing.T) {
+	s := "<details><summary>x</summary>\n\n```\n" + strings.Repeat("é line\n", 100)
+	got := truncateMarkdown(s, 200)
+	if !utf8.ValidString(got) {
+		t.Fatal("truncation produced invalid UTF-8")
+	}
+	if strings.Count(got, "```") != 2 || !strings.Contains(got, "</details>") || !strings.HasSuffix(got, "_Report truncated. Use -o json for the full result._\n") {
+		t.Errorf("truncated output not closed:\n%s", got)
 	}
 }

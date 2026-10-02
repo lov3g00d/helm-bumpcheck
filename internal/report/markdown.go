@@ -8,22 +8,22 @@ import (
 
 const maxMarkdownLen = 60000
 
+const Marker = "<!-- helm-bumpcheck -->"
+
 func WriteMarkdown(w io.Writer, res Report) error {
 	v := build(res)
 	out := markdown(v, true)
 	if len(out) > maxMarkdownLen {
 		out = markdown(v, false)
 	}
-	if len(out) > maxMarkdownLen {
-		out = out[:maxMarkdownLen] + "\n\n_Report truncated. Use -o json for the full result._\n"
-	}
+	out = truncateMarkdown(out, maxMarkdownLen)
 	_, err := io.WriteString(w, out)
 	return err
 }
 
 func markdown(v view, details bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "### helm bumpcheck: %s\n\n**%s**\n", mdCode(v.Title), strings.TrimPrefix(v.Verdict, "Result: "))
+	fmt.Fprintf(&b, "%s\n### helm bumpcheck: %s\n\n**%s**\n", Marker, mdCode(v.Title), strings.TrimPrefix(v.Verdict, "Result: "))
 
 	mdSection(&b, "Breaking", v.Breaking, details)
 	mdSection(&b, "Check", v.Check, details)
@@ -71,11 +71,12 @@ func mdSection(b *strings.Builder, name string, rows []row, details bool) {
 		}
 		fmt.Fprintf(&more, "- %s\n", label)
 		if len(r.Lines) > 0 {
-			fmt.Fprintf(&more, "  ```\n")
+			fence := fenceFor(r.Lines)
+			fmt.Fprintf(&more, "  %s\n", fence)
 			for _, l := range r.Lines {
 				fmt.Fprintf(&more, "  %s\n", l)
 			}
-			fmt.Fprintf(&more, "  ```\n")
+			fmt.Fprintf(&more, "  %s\n", fence)
 		}
 		for _, e := range r.Evidence {
 			where := e.Release
@@ -103,6 +104,10 @@ func mdCell(s string) string {
 
 func mdText(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
-	return strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "[", `\[`)
+	s = strings.ReplaceAll(s, "]", `\]`)
+	return neutralizeMentions(s)
 }

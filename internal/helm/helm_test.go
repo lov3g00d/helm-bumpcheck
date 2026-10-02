@@ -163,3 +163,16 @@ func TestCleanRenderErrorCapsLines(t *testing.T) {
 		t.Errorf("got %d lines ending %q", n, got[len(got)-3:])
 	}
 }
+
+func TestErrorsRedactRepoCredentials(t *testing.T) {
+	repo := "https://user:s3cret@charts.example.com"
+	r := Runner{Bin: fakeHelm(t, `echo "Error: failed to fetch $5/index.yaml" >&2; exit 1`)}
+	_, err := r.ShowValues(context.Background(), Chart{Ref: "app", Repo: repo})
+	if err == nil || strings.Contains(err.Error(), "s3cret") || !strings.Contains(err.Error(), "user:xxxxx@charts.example.com") {
+		t.Errorf("err = %v", err)
+	}
+	err = r.Template(context.Background(), Chart{Ref: "app", Repo: repo}, nil)
+	if err == nil || strings.Contains(err.Error(), "s3cret") {
+		t.Errorf("template err = %v", err)
+	}
+}
