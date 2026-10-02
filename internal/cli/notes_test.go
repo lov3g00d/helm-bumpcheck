@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -185,5 +186,80 @@ func TestDiffFetchesNotesOncePerChart(t *testing.T) {
 	}
 	if got := ghCalls.Load(); got != 2 {
 		t.Errorf("GitHub requests = %d, want 2 (one per notes source, shared by both values files)", got)
+	}
+}
+
+func TestNotesReportTruncatedListing(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := []map[string]any{{"tag_name": "v2.0.0", "body": "## Breaking Changes\n- Removed legacy mode"}}
+		for i := range 99 {
+			page = append(page, map[string]any{"tag_name": fmt.Sprintf("nightly-%s-%d", r.URL.Query().Get("page"), i)})
+		}
+		json.NewEncoder(w).Encode(page)
+	}))
+	t.Cleanup(gh.Close)
+	t.Setenv("GITHUB_API_URL", gh.URL)
+
+	const want = "Release notes (app): releases may be incomplete: stopped after 1 page at v2.0.0, raise --max-pages to read further"
+	for _, format := range []string{"text", "markdown"} {
+		out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app", "--max-pages", "1", "-o", format)
+		if err != nil {
+			t.Fatalf("execute: %v\n%s", err, out)
+		}
+		if !strings.Contains(out, want) {
+			t.Errorf("%s output has no truncation line:\n%s", format, out)
+		}
+	}
+
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app", "--max-pages", "1", "-o", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res report.Report
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatal(err)
+	}
+	if n := res.Notes[0]; n.Releases != 1 || !strings.HasPrefix(n.Truncated, "releases may be incomplete") {
+		t.Errorf("notes = %+v", n)
+	}
+}
+
+func TestNotesUnauthenticatedCapIsReported(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	var calls atomic.Int32
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		page := []map[string]any{}
+		for i := range 100 {
+			page = append(page, map[string]any{"tag_name": fmt.Sprintf("nightly-%s-%d", r.URL.Query().Get("page"), i)})
+		}
+		json.NewEncoder(w).Encode(page)
+	}))
+	t.Cleanup(gh.Close)
+	t.Setenv("GITHUB_API_URL", gh.URL)
+
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if calls.Load() != 10 {
+		t.Errorf("GitHub requests = %d, want 10 without a token", calls.Load())
+	}
+	want := "Release notes (app): skipped, no releases of acme/app tagged <version> in (1.0.0, 2.0.0] were reached, releases may be incomplete: stopped after 10 pages, GitHub lists only the first 1000 releases without a token, set GITHUB_TOKEN to read further"
+	if !strings.Contains(out, want) {
+		t.Errorf("output:\n%s", out)
+	}
+}
+
+func TestRejectsBadMaxPages(t *testing.T) {
+	setup(t)
+	for _, v := range []string{"0", "-1"} {
+		_, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "--max-pages", v)
+		if err == nil || !strings.Contains(err.Error(), "--max-pages must be at least 1") {
+			t.Errorf("--max-pages %s: err = %v", v, err)
+		}
 	}
 }

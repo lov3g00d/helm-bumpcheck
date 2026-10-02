@@ -252,16 +252,16 @@ type Result struct {
 	Stats    Stats
 }
 
-func Fetch(ctx context.Context, gh *notes.GitHub, req Request) ([]notes.Release, []notes.Entry, error) {
-	releases, err := gh.Releases(ctx, req.Repo, req.TagPrefix, req.From, req.To)
+func Fetch(ctx context.Context, gh *notes.GitHub, req Request) ([]notes.Release, []notes.Entry, *notes.Truncation, error) {
+	releases, trunc, err := gh.Releases(ctx, req.Repo, req.TagPrefix, req.From, req.To)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return releases, notes.SplitAll(releases), nil
+	return releases, notes.SplitAll(releases), trunc, nil
 }
 
 func CheckReleaseNotes(ctx context.Context, gh *notes.GitHub, ev Evaluator, req Request) (Result, error) {
-	releases, entries, err := Fetch(ctx, gh, req)
+	releases, entries, _, err := Fetch(ctx, gh, req)
 	if err != nil {
 		return Result{}, err
 	}

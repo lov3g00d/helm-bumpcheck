@@ -58,6 +58,7 @@ type Notes struct {
 	Stats     match.Stats   `json:"stats"`
 	Matches   []match.Match `json:"matches"`
 	Skipped   string        `json:"skipped,omitempty"`
+	Truncated string        `json:"truncated,omitempty"`
 }
 
 var FailKinds = []string{"removed", "type", "render", "default"}

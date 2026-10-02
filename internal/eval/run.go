@@ -72,7 +72,7 @@ func (r Runner) runCase(ctx context.Context, c Case) (CaseResult, error) {
 		res.Jev = &JevCase{Predicted: predicted, Score: ScoreKeys(predicted, c.Affected), Stats: out.Stats, Matches: out.Matches}
 	} else {
 		var err error
-		releases, err = r.GitHub.Releases(ctx, c.AppRepo, c.TagPrefix, c.From, c.To)
+		releases, _, err = r.GitHub.Releases(ctx, c.AppRepo, c.TagPrefix, c.From, c.To)
 		if err != nil {
 			return res, err
 		}

@@ -26,10 +26,11 @@ type notesSource struct {
 }
 
 type fetchedNotes struct {
-	src      notesSource
-	releases int
-	entries  []notes.Entry
-	skipped  string
+	src       notesSource
+	releases  int
+	entries   []notes.Entry
+	skipped   string
+	truncated string
 }
 
 func notesSources(s spec, o options, oldApp, newApp string) []notesSource {
@@ -82,10 +83,17 @@ func fetchNotes(ctx context.Context, d *deps, chart string, src notesSource) *fe
 		return f
 	}
 
-	releases, entries, err := match.Fetch(ctx, d.gh, request(chart, src, nil))
-	switch {
-	case err != nil:
+	releases, entries, trunc, err := match.Fetch(ctx, d.gh, request(chart, src, nil))
+	if err != nil {
 		f.skipped = err.Error()
+		return f
+	}
+	if trunc != nil {
+		f.truncated = truncationNote(trunc, d.gh.Token != "")
+	}
+	switch {
+	case len(releases) == 0 && trunc != nil:
+		f.skipped = fmt.Sprintf("no releases of %s tagged %s<version> in (%s, %s] were reached, %s", src.repo, src.tagPrefix, src.from, src.to, f.truncated)
 	case len(releases) == 0:
 		f.skipped = fmt.Sprintf("no releases of %s tagged %s<version> in (%s, %s]", src.repo, src.tagPrefix, src.from, src.to)
 	default:
@@ -94,9 +102,25 @@ func fetchNotes(ctx context.Context, d *deps, chart string, src notesSource) *fe
 	return f
 }
 
+func truncationNote(t *notes.Truncation, authenticated bool) string {
+	at := ""
+	if t.Oldest != "" {
+		at = " at " + t.Oldest
+	}
+	stopped := fmt.Sprintf("releases may be incomplete: stopped after %d %s%s", t.Pages, plural(t.Pages, "page", "pages"), at)
+	switch {
+	case t.ResultCap && !authenticated:
+		return stopped + ", GitHub lists only the first 1000 releases without a token, set GITHUB_TOKEN to read further"
+	case t.ResultCap:
+		return stopped + ", GitHub lists only the first 1000 releases"
+	default:
+		return stopped + ", raise --max-pages to read further"
+	}
+}
+
 func askNotes(ctx context.Context, d *deps, cs *chartStage, f *fetchedNotes, r values.Report, o options) (*report.Notes, error) {
 	src := f.src
-	res := &report.Notes{Source: src.kind, Repo: src.repo, TagPrefix: src.tagPrefix, From: src.from, To: src.to, Threshold: o.threshold, Skipped: f.skipped}
+	res := &report.Notes{Source: src.kind, Repo: src.repo, TagPrefix: src.tagPrefix, From: src.from, To: src.to, Threshold: o.threshold, Skipped: f.skipped, Truncated: f.truncated}
 	if res.Skipped != "" {
 		return res, nil
 	}

@@ -94,7 +94,7 @@ func NewRootCmd(version string) *cobra.Command {
 	p.StringVarP(&o.output, "output", "o", "text", "output format: text, json or markdown")
 	p.StringVar(&o.appTagPrefix, "app-tag-prefix", "", "prefix before the version in the app's release tags")
 	p.StringVar(&o.chartTagPrefix, "chart-tag-prefix", "", "prefix before the version in the chart's release tags (default CHART-)")
-	p.IntVar(&o.maxPages, "max-pages", 40, "maximum pages of 100 GitHub releases to read per repo")
+	p.IntVar(&o.maxPages, "max-pages", 40, "maximum pages of 100 GitHub releases to read per repo, at most 10 without a GitHub token")
 	p.Float64Var(&o.threshold, "threshold", 0.5, "minimum probability for a release-note match to be shown")
 	p.StringSliceVar(&o.failOn, "fail-on", nil, "exit with code 2 if the report has any of: "+strings.Join(report.FailKinds, ", "))
 	p.BoolVar(&o.render, "render", true, "render both chart versions with your values and report if only the new one fails")

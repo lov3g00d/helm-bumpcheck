@@ -173,6 +173,9 @@ func validate(o options) error {
 			return fmt.Errorf("unknown --fail-on kind %q, want any of %s", k, strings.Join(report.FailKinds, ", "))
 		}
 	}
+	if o.maxPages < 1 {
+		return fmt.Errorf("--max-pages must be at least 1, got %d", o.maxPages)
+	}
 	if o.threshold < 0 || o.threshold > 1 {
 		return fmt.Errorf("threshold must be between 0 and 1, got %v", o.threshold)
 	}

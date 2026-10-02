@@ -167,6 +167,9 @@ func footer(res Report) []string {
 			line += fmt.Sprintf(", %d of %d Jev requests failed", f, n.Stats.Requests)
 		}
 		out = append(out, line)
+		if n.Truncated != "" {
+			out = append(out, fmt.Sprintf("Release notes (%s): %s", n.Source, n.Truncated))
+		}
 	}
 	if n := len(res.Dependencies); n > 0 {
 		out = append(out, fmt.Sprintf("The chart has %d %s (%s); keys under them are not compared against the subchart defaults.",

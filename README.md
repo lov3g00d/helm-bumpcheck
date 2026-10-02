@@ -62,7 +62,7 @@ A chart whose dependencies changed in `Chart.yaml` or `requirements.yaml` withou
 
 `--app-repo owner/name` reads the app's GitHub releases over the chart's `appVersion` range. `--chart-notes owner/name` reads the chart's own releases over the chart version range, with tags `CHART-<version>` by default (`--chart-tag-prefix` changes it).
 
-Both need `TYPESAFE_API_KEY`. Without it the rest of the report still runs. Only release-note text and the key paths you set are sent to TypeSafe; your values never leave the machine. `GITHUB_TOKEN` or `GH_TOKEN` raises the GitHub rate limit and is needed for large chart monorepos.
+Both need `TYPESAFE_API_KEY`. Without it the rest of the report still runs. Only release-note text and the key paths you set are sent to TypeSafe; your values never leave the machine. `GITHUB_TOKEN` or `GH_TOKEN` raises the GitHub rate limit and is needed for large chart monorepos: without a token GitHub lists only the first 1000 releases. `--max-pages` (default 40, 10 without a token) caps the pages of 100 releases read per repo, and the report says when the listing stopped before the `from` release.
 
 ## Exit codes
 
