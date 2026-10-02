@@ -45,7 +45,7 @@ type Dependencies struct {
 }
 
 func (d Dependencies) Removed() []string {
-	var out []string
+	out := []string{}
 	for _, name := range d.Old {
 		if !slices.Contains(d.New, name) && !slices.Contains(out, name) {
 			out = append(out, name)
@@ -281,7 +281,18 @@ func (r *Report) classify(oldDefaults, newDefaults map[string]any, leaf Leaf, pa
 
 func Compare(oldDefaults, newDefaults, user map[string]any, deps Dependencies) Report {
 	oldL, newL, userL := Flatten(oldDefaults), Flatten(newDefaults), Flatten(user)
-	r := Report{RemovedDependencies: deps.Removed()}
+	r := Report{
+		Removed:             []string{},
+		TypeChanged:         []TypeChange{},
+		MeaningChanged:      []MeaningChange{},
+		NowDeclared:         []string{},
+		Freeform:            []string{},
+		Standard:            []string{},
+		Undeclared:          []string{},
+		DefaultChanged:      []Change{},
+		Added:               []string{},
+		RemovedDependencies: deps.Removed(),
+	}
 	typed := map[string]*TypeChange{}
 
 	for p, leaf := range userL {

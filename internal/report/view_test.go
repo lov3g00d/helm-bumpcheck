@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -10,18 +11,28 @@ import (
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
+func emptyLists(r values.Report) values.Report {
+	v := reflect.ValueOf(&r).Elem()
+	for _, f := range v.Fields() {
+		if f.Kind() == reflect.Slice && f.IsNil() {
+			f.Set(reflect.MakeSlice(f.Type(), 0, 0))
+		}
+	}
+	return r
+}
+
 func veleroReport() Report {
 	note := "[velero] Add support for multiple backupstoragelocations and volumesnapshotlocations by @bsteinm2 in https://github.com/vmware-tanzu/helm-charts/pull/413"
 	return Report{
 		Chart: "velero", From: "3.2.0", To: "4.0.1", AppFrom: "1.10.0", AppTo: "1.10.0",
-		Report: values.Report{
+		Report: emptyLists(values.Report{
 			Removed: []string{"configuration.provider"},
 			TypeChanged: []values.TypeChange{
 				{Path: "configuration.backupStorageLocation", Old: "map", New: "list", Keys: []string{"configuration.backupStorageLocation.bucket", "configuration.backupStorageLocation.name"}},
 			},
 			Freeform: []string{"schedules.daily.schedule"},
 			Added:    []string{"a", "b"},
-		},
+		}),
 		Render: &Render{OldOK: true, NewOK: false, NewError: "Error: execution error at (velero/templates/NOTES.txt:78:4):\nERROR: Please make .configuration.backupStorageLocation from map to slice"},
 		Notes: []*Notes{
 			{Source: "chart", Repo: "vmware-tanzu/helm-charts", From: "3.2.0", To: "4.0.1", Releases: 2, Entries: 4, Threshold: 0.5,
@@ -31,7 +42,7 @@ func veleroReport() Report {
 					{Key: "configuration.backupStorageLocation.name", Probability: 0.70, Release: "velero-4.0.0", Section: "What's Changed", Text: note},
 					{Key: "schedules.daily.schedule", Probability: 0.2, Release: "velero-4.0.0", Section: "What's Changed", Text: note},
 				}},
-			{Source: "app", Skipped: "the version did not change"},
+			{Source: "app", Skipped: "the version did not change", Matches: []match.Match{}},
 		},
 	}
 }

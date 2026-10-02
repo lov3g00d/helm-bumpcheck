@@ -129,6 +129,29 @@ func TestNotesSkippedWithoutKey(t *testing.T) {
 	}
 }
 
+func TestJSONEncodesEmptyListsAsArrays(t *testing.T) {
+	userValues := setup(t)
+	fakeAPIs(t)
+	t.Setenv(jev.APIKeyEnv, "")
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--app-repo", "acme/app", "-o", "json")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	var got struct {
+		TypeChanged json.RawMessage `json:"typeChanged"`
+		Undeclared  json.RawMessage `json:"undeclared"`
+		Notes       []struct {
+			Matches json.RawMessage `json:"matches"`
+		} `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if string(got.TypeChanged) != "[]" || string(got.Undeclared) != "[]" || len(got.Notes) != 1 || string(got.Notes[0].Matches) != "[]" {
+		t.Errorf("empty lists are not [] in:\n%s", out)
+	}
+}
+
 func TestNotesSkippedWhenAppVersionUnchanged(t *testing.T) {
 	userValues := setup(t)
 	fakeAPIs(t)

@@ -18,19 +18,19 @@
       ]
     }
   ],
-  "meaningChanged": null,
-  "nowDeclared": null,
+  "meaningChanged": [],
+  "nowDeclared": [],
   "freeform": [
     "schedules.daily.schedule"
   ],
-  "standard": null,
-  "undeclared": null,
-  "defaultChanged": null,
+  "standard": [],
+  "undeclared": [],
+  "defaultChanged": [],
   "added": [
     "a",
     "b"
   ],
-  "removedDependencies": null,
+  "removedDependencies": [],
   "render": {
     "oldOk": true,
     "newOk": false,
@@ -89,7 +89,7 @@
         "questions": 0,
         "inputTokens": 0
       },
-      "matches": null,
+      "matches": [],
       "skipped": "the version did not change"
     }
   ]

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
 const hostileVersion = "2.0.0 | x @octo-org/admins <img src=https://evil.example/p.png> [l](https://evil.example)\n\n\x1b]8;;https://evil.example\x07click\x1b]8;;\x07"
@@ -11,7 +13,7 @@ const hostileVersion = "2.0.0 | x @octo-org/admins <img src=https://evil.example
 func batchFixture() Batch {
 	velero := veleroReport()
 	velero.Path, velero.Values = "charts/velero", "values_prod.yaml"
-	hostile := Report{Chart: "app", From: "1.0.0", To: hostileVersion, Path: "charts/app", Values: "values_a|b.yaml"}
+	hostile := Report{Chart: "app", From: "1.0.0", To: hostileVersion, Path: "charts/app", Values: "values_a|b.yaml", Report: emptyLists(values.Report{})}
 	return Batch{
 		Base:    "8387ab7ac96b0f3c1d2e4a5b6c7d8e9f0a1b2c3d",
 		Head:    "81b35ce08326aa4b5c6d7e8f9a0b1c2d3e4f5a6b",

@@ -1,8 +1,10 @@
 package values
 
 import (
+	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -13,6 +15,16 @@ func mustParse(t *testing.T, s string) map[string]any {
 		t.Fatalf("parse: %v", err)
 	}
 	return m
+}
+
+func withEmptyLists(r Report) Report {
+	v := reflect.ValueOf(&r).Elem()
+	for _, f := range v.Fields() {
+		if f.Kind() == reflect.Slice && f.IsNil() {
+			f.Set(reflect.MakeSlice(f.Type(), 0, 0))
+		}
+	}
+	return r
 }
 
 func TestPath(t *testing.T) {
@@ -101,13 +113,13 @@ typoKey: 1
 
 	got := Compare(oldDefaults, newDefaults, user, Dependencies{})
 
-	want := Report{
+	want := withEmptyLists(Report{
 		Removed:        []string{"processor.localBlocks.flushToStorage", "structuredConfig.overrides.max_traces"},
 		Standard:       []string{`podAnnotations["prometheus.io/scrape"]`},
 		Undeclared:     []string{"typoKey"},
 		DefaultChanged: []Change{{Path: "replicas", Old: 1.0, New: 2.0}},
 		Added:          []string{"newFeature"},
-	}
+	})
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Compare =\n%#v\nwant\n%#v", got, want)
 	}
@@ -115,7 +127,7 @@ typoKey: 1
 
 func TestCompareIgnoresSpellingsHelmReadsAlike(t *testing.T) {
 	got := Compare(mustParse(t, "cpu: 1\nflag: yes\n"), mustParse(t, "cpu: 1.0\nflag: true\n"), map[string]any{}, Dependencies{})
-	if !reflect.DeepEqual(got, Report{}) {
+	if !reflect.DeepEqual(got, withEmptyLists(Report{})) {
 		t.Errorf("Compare = %#v, want an empty report", got)
 	}
 }
@@ -529,6 +541,27 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 	}
 }
 
+func TestCompareEncodesEmptyListsAsArrays(t *testing.T) {
+	data, err := json.Marshal(Compare(map[string]any{}, map[string]any{}, map[string]any{}, Dependencies{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	typ := reflect.TypeFor[Report]()
+	for f := range typ.Fields() {
+		if f.Type.Kind() != reflect.Slice {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if got := string(fields[name]); got != "[]" {
+			t.Errorf("%s = %s, want []", name, got)
+		}
+	}
+}
+
 func TestNoteKeys(t *testing.T) {
 	r := Report{
 		Removed:        []string{"legacy.enabled"},
@@ -627,7 +660,7 @@ func TestCompareMeaningChanged(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user), Dependencies{})
-			if !reflect.DeepEqual(got.MeaningChanged, tt.want) {
+			if (len(got.MeaningChanged) > 0 || len(tt.want) > 0) && !reflect.DeepEqual(got.MeaningChanged, tt.want) {
 				t.Errorf("MeaningChanged = %#v, want %#v", got.MeaningChanged, tt.want)
 			}
 		})

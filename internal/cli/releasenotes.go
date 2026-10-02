@@ -120,7 +120,7 @@ func truncationNote(t *notes.Truncation, authenticated bool) string {
 
 func askNotes(ctx context.Context, d *deps, cs *chartStage, f *fetchedNotes, r values.Report, o options) (*report.Notes, error) {
 	src := f.src
-	res := &report.Notes{Source: src.kind, Repo: src.repo, TagPrefix: src.tagPrefix, From: src.from, To: src.to, Threshold: o.threshold, Skipped: f.skipped, Truncated: f.truncated}
+	res := &report.Notes{Source: src.kind, Repo: src.repo, TagPrefix: src.tagPrefix, From: src.from, To: src.to, Threshold: o.threshold, Matches: []match.Match{}, Skipped: f.skipped, Truncated: f.truncated}
 	if res.Skipped != "" {
 		return res, nil
 	}
@@ -139,7 +139,8 @@ func askNotes(ctx context.Context, d *deps, cs *chartStage, f *fetchedNotes, r v
 		res.Skipped = err.Error()
 		return res, nil
 	}
-	res.Releases, res.Entries, res.Matches, res.Stats = f.releases, len(f.entries), matches, stats
+	res.Releases, res.Entries, res.Stats = f.releases, len(f.entries), stats
+	res.Matches = append(res.Matches, matches...)
 	return res, nil
 }
 
