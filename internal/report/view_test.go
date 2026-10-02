@@ -147,6 +147,11 @@ func TestFooterWarnsAboutSubcharts(t *testing.T) {
 	if len(v.Footer) != 1 || v.Footer[0] != want {
 		t.Errorf("footer = %q", v.Footer)
 	}
+	v = build(Report{Chart: "c", From: "1", To: "2", Dependencies: []string{"tempo"}})
+	want = "The chart has 1 subchart (tempo); keys under it are not compared against the subchart defaults."
+	if len(v.Footer) != 1 || v.Footer[0] != want {
+		t.Errorf("footer = %q", v.Footer)
+	}
 }
 
 func TestBuildShowsDroppedSubcharts(t *testing.T) {
