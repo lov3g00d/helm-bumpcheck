@@ -14,6 +14,7 @@ BREAKING
   type changed  configuration.volumeSnapshotLocation  map -> list, 6 keys you set
   removed       configuration.provider                no longer in the chart
   render        the new chart rejects your values
+                Error: execution error at (velero/templates/NOTES.txt:78:4):
                 ERROR: Please make .configuration.backupStorageLocation from map to slice
                 ...
 ```
