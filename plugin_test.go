@@ -92,18 +92,20 @@ func TestInstallBinary(t *testing.T) {
 	}
 	version := pluginVersion(t)
 	archive := fmt.Sprintf("helm-bumpcheck_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
-	binary := fmt.Sprintf("#!/bin/sh\necho 'helm-bumpcheck version %s'\n", version)
+	binaryOf := func(v string) string { return fmt.Sprintf("#!/bin/sh\necho 'helm-bumpcheck version %s'\n", v) }
+	binary := binaryOf(version)
 	hint := "; run 'helm plugin uninstall bumpcheck' before installing again"
 
 	tests := []struct {
 		name      string
 		archive   []byte
 		checksum  string
-		installed bool
+		installed string
 		wantErr   string
 	}{
 		{name: "installs the release binary", archive: tarGz(t, "helm-bumpcheck", binary)},
-		{name: "keeps a binary of the same version", installed: true},
+		{name: "keeps a binary of the same version", installed: version},
+		{name: "replaces an older binary", archive: tarGz(t, "helm-bumpcheck", binary), installed: "0.0.1"},
 		{name: "missing release", wantErr: "could not download {url}/" + archive + hint},
 		{name: "checksum mismatch", archive: tarGz(t, "helm-bumpcheck", binary), checksum: strings.Repeat("0", 64), wantErr: "checksum mismatch for {url}/" + archive + hint},
 		{name: "archive without the binary", archive: tarGz(t, "README.md", "hi"), wantErr: "no helm-bumpcheck binary in {url}/" + archive + hint},
@@ -118,8 +120,8 @@ func TestInstallBinary(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(pluginDir, "plugin.yaml"), plugin, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if tt.installed {
-				writeExecutable(t, filepath.Join(pluginDir, "bin", "helm-bumpcheck"), binary)
+			if tt.installed != "" {
+				writeExecutable(t, filepath.Join(pluginDir, "bin", "helm-bumpcheck"), binaryOf(tt.installed))
 			}
 
 			mirror := t.TempDir()
@@ -150,7 +152,7 @@ func TestInstallBinary(t *testing.T) {
 			cmd.Stderr = &stderr
 			err = cmd.Run()
 
-			if tt.installed {
+			if tt.installed == version {
 				if err != nil || stderr.Len() > 0 {
 					t.Fatalf("err = %v, stderr = %q, want a silent exit 0", err, stderr.String())
 				}
