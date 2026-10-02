@@ -158,8 +158,11 @@ func footer(res Report) []string {
 			out = append(out, fmt.Sprintf("Release notes (%s): skipped, %s", n.Source, n.Skipped))
 			continue
 		}
-		line := fmt.Sprintf("Release notes (%s): %s %s -> %s, %d releases, %d entries, %d questions",
-			n.Source, n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions)
+		line := fmt.Sprintf("Release notes (%s): %s %s -> %s, %d %s, %d %s, %d %s",
+			n.Source, n.Repo, n.From, n.To,
+			n.Releases, plural(n.Releases, "release", "releases"),
+			n.Entries, plural(n.Entries, "entry", "entries"),
+			n.Stats.Questions, plural(n.Stats.Questions, "question", "questions"))
 		if c := n.Stats.Cached; c > 0 {
 			line += fmt.Sprintf(", %d cached %s", c, plural(c, "answer", "answers"))
 		}

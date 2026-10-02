@@ -159,3 +159,12 @@ func TestFooterShowsCachedAnswersAndTruncation(t *testing.T) {
 		t.Errorf("footer = %q\nwant     %q", footer, want)
 	}
 }
+
+func TestFooterPluralizesCounts(t *testing.T) {
+	r := veleroReport()
+	r.Notes[0].Releases, r.Notes[0].Entries, r.Notes[0].Stats = 1, 1, match.Stats{Questions: 1}
+	want := "Release notes (chart): vmware-tanzu/helm-charts 3.2.0 -> 4.0.1, 1 release, 1 entry, 1 question"
+	if got := build(r).Footer[0]; got != want {
+		t.Errorf("footer = %q\nwant     %q", got, want)
+	}
+}
