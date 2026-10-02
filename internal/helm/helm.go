@@ -94,19 +94,37 @@ func (r Runner) Pull(ctx context.Context, c Chart, dest string) (string, error) 
 }
 
 func LoadDir(dir string) ([]byte, Metadata, error) {
-	chartYAML, err := os.ReadFile(filepath.Join(dir, "Chart.yaml"))
-	if err != nil {
+	var m Metadata
+	if err := decodeFile(filepath.Join(dir, "Chart.yaml"), &m); err != nil {
 		return nil, Metadata{}, err
 	}
-	var m Metadata
-	if err := yaml.Unmarshal(chartYAML, &m); err != nil {
-		return nil, Metadata{}, fmt.Errorf("parse %s: %w", filepath.Join(dir, "Chart.yaml"), err)
+	var v1 struct {
+		Dependencies []Dependency `yaml:"dependencies"`
+	}
+	err := decodeFile(filepath.Join(dir, "requirements.yaml"), &v1)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return nil, Metadata{}, err
+	case v1.Dependencies != nil:
+		m.Dependencies = v1.Dependencies
 	}
 	defaults, err := os.ReadFile(filepath.Join(dir, "values.yaml"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, m, nil
 	}
 	return defaults, m, err
+}
+
+func decodeFile(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := yaml.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	return nil
 }
 
 func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) error {

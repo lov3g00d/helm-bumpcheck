@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -181,5 +182,72 @@ func TestLoadDirWithoutValues(t *testing.T) {
 	defaults, meta, err := LoadDir(dir)
 	if err != nil || defaults != nil || meta.Name != "lib" {
 		t.Errorf("LoadDir = %q, %+v, %v", defaults, meta, err)
+	}
+}
+
+func TestLoadDirDependencies(t *testing.T) {
+	tests := []struct {
+		name         string
+		chart        string
+		requirements string
+		want         []string
+	}{
+		{
+			name:  "dependencies in Chart.yaml",
+			chart: "apiVersion: v2\nname: app\nversion: 1.0.0\ndependencies:\n  - name: redis\n",
+			want:  []string{"redis"},
+		},
+		{
+			name:         "v1 dependencies in requirements.yaml",
+			chart:        "apiVersion: v1\nname: app\nversion: 1.0.0\n",
+			requirements: "dependencies:\n  - name: postgresql\n    alias: db\n  - name: redis\n",
+			want:         []string{"db", "redis"},
+		},
+		{
+			name:         "requirements.yaml replaces Chart.yaml dependencies like Helm's loader",
+			chart:        "apiVersion: v1\nname: app\nversion: 1.0.0\ndependencies:\n  - name: redis\n",
+			requirements: "dependencies:\n  - name: postgresql\n",
+			want:         []string{"postgresql"},
+		},
+		{
+			name:         "requirements.yaml without dependencies keeps Chart.yaml ones",
+			chart:        "apiVersion: v2\nname: app\nversion: 1.0.0\ndependencies:\n  - name: redis\n",
+			requirements: "{}\n",
+			want:         []string{"redis"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			files := map[string]string{"Chart.yaml": tt.chart}
+			if tt.requirements != "" {
+				files["requirements.yaml"] = tt.requirements
+			}
+			for name, content := range files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, meta, err := LoadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := meta.DependencyNames(); !slices.Equal(got, tt.want) {
+				t.Errorf("DependencyNames = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadDirRejectsBadRequirements(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v1\nname: app\nversion: 1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "requirements.yaml"), []byte("dependencies: [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadDir(dir); err == nil || !strings.Contains(err.Error(), "requirements.yaml") {
+		t.Errorf("err = %v, want a requirements.yaml parse error", err)
 	}
 }
