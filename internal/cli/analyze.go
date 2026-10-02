@@ -37,11 +37,12 @@ func newDeps(o options) (*deps, func(), error) {
 		return nil, nil, err
 	}
 	gh := notes.NewGitHubFromEnv()
-	gh.MaxPages = o.maxPages
+	gh.MaxPages, gh.UserAgent = o.maxPages, o.userAgent
 	d := &deps{helm: h, gh: gh, work: work}
 	if client, err := jev.NewFromEnv(); err != nil {
 		d.jevErr = err
 	} else {
+		client.UserAgent = o.userAgent
 		d.jev = client
 	}
 	return d, func() { os.RemoveAll(work) }, nil

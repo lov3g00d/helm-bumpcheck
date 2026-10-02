@@ -19,6 +19,9 @@ func fakeAPIs(t *testing.T) *atomic.Int32 {
 	var ghCalls atomic.Int32
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ghCalls.Add(1)
+		if got := r.Header.Get("User-Agent"); got != "helm-bumpcheck/test" {
+			t.Errorf("GitHub User-Agent = %q", got)
+		}
 		if r.URL.Path != "/repos/acme/app/releases" {
 			http.NotFound(w, r)
 			return
@@ -32,6 +35,9 @@ func fakeAPIs(t *testing.T) *atomic.Int32 {
 	t.Cleanup(gh.Close)
 
 	jv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != "helm-bumpcheck/test" {
+			t.Errorf("Jev User-Agent = %q", got)
+		}
 		var req struct {
 			State     map[string]string `json:"state"`
 			Questions map[string]struct {

@@ -29,6 +29,7 @@ type options struct {
 	chartTagPrefix string
 	maxPages       int
 	detectNotes    bool
+	userAgent      string
 }
 
 var ErrFindings = errors.New("report has findings")
@@ -62,7 +63,7 @@ const rootExample = `  helm bumpcheck tempo --repo https://grafana.github.io/hel
     --app-repo grafana/tempo -o markdown --fail-on removed,type,render`
 
 func NewRootCmd(version string) *cobra.Command {
-	var o options
+	o := options{userAgent: "helm-bumpcheck/" + version}
 	cmd := &cobra.Command{
 		Use:           commandName() + " CHART --from VERSION --to VERSION [-f values.yaml]...",
 		Short:         "Show how a chart upgrade affects the values you set",
