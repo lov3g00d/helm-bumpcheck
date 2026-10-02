@@ -10,36 +10,54 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: helm-bumpcheck-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   bumpcheck:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    env:
+      SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
-          version: v3.19.1
+          version: v3.22.0
       - name: install helm-bumpcheck
         run: helm plugin install https://github.com/lov3g00d/helm-bumpcheck --version v0.1.0
       - name: check chart bumps
         id: check
         env:
+          BASE_REF: ${{ github.base_ref }}
           GITHUB_TOKEN: ${{ github.token }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: |
+          set -- --base "origin/$BASE_REF" -o markdown --fail-on removed,type,render
+          if [ "$SAME_REPO" = true ]; then
+            set -- "$@" --notes
+          fi
           set +e
-          helm bumpcheck diff --base "origin/${{ github.base_ref }}" --notes \
-            -o markdown --fail-on removed,type,render > bumpcheck.md
+          helm bumpcheck diff "$@" > bumpcheck.md
           echo "exit=$?" >> "$GITHUB_OUTPUT"
+          set -e
           cat bumpcheck.md >> "$GITHUB_STEP_SUMMARY"
       - name: comment
+        if: env.SAME_REPO == 'true' && steps.check.outputs.exit != '1'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file bumpcheck.md --edit-last \
-            || gh pr comment "${{ github.event.pull_request.number }}" --body-file bumpcheck.md
+          id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- helm-bumpcheck -->"))) | .id' \
+            | tail -n 1)"
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@bumpcheck.md > /dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@bumpcheck.md > /dev/null
+          fi
       - name: fail on breaking findings
         if: steps.check.outputs.exit != '0'
         env:
