@@ -39,7 +39,7 @@ Keys under standard Kubernetes blocks (`resources`, `nodeSelector`, annotations,
 helm plugin install https://github.com/lov3g00d/helm-bumpcheck --version v0.1.0
 ```
 
-On Helm 4, add `--verify=false`; git installs carry no signature. The install hook downloads the release binary for linux or darwin on amd64 or arm64 and checks it against `checksums.txt`. `HELM_BUMPCHECK_RELEASE_URL` points it at a mirror.
+Requires Helm 3.18 or later, or Helm 4. On Helm 4, add `--verify=false`; git installs carry no signature. The install hook downloads the release binary for linux or darwin on amd64 or arm64 and checks it against `checksums.txt`. `HELM_BUMPCHECK_RELEASE_URL` points it at a mirror.
 
 Without Helm's plugin manager: `go install github.com/lov3g00d/helm-bumpcheck@latest` and run `helm-bumpcheck`.
 
@@ -55,6 +55,8 @@ On Helm 4, add `--verify=false` to the install as above.
 If the install hook fails, for example on a network error, Helm keeps the plugin registered without a binary and the next install stops at `plugin already exists`. Run `helm plugin uninstall bumpcheck` first, then install again.
 
 To remove the plugin: `helm plugin uninstall bumpcheck`.
+
+Helm 3.17 and older cannot read the `platformHooks` in `plugin.yaml`. An install attempt there leaves a directory that stops helm from loading any plugin, and `helm plugin uninstall` cannot remove it. Delete it by hand: `rm -rf "$(helm env HELM_PLUGINS)/helm-bumpcheck"`.
 
 ## Use
 
