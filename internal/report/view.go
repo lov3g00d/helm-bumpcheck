@@ -268,13 +268,13 @@ func pickEvidence(idx map[string][]noteMatch, keys []string) ([]evidence, int) {
 		all = append(all, e)
 	}
 	slices.SortFunc(all, func(a, b evidence) int {
-		if c := cmp.Compare(rankTag(b.Notable), rankTag(a.Notable)); c != 0 {
-			return c
-		}
-		if c := cmp.Compare(b.Probability, a.Probability); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.Release+a.Text, b.Release+b.Text)
+		return cmp.Or(
+			cmp.Compare(rankTag(b.Notable), rankTag(a.Notable)),
+			cmp.Compare(b.Probability, a.Probability),
+			cmp.Compare(a.Release, b.Release),
+			cmp.Compare(a.Text, b.Text),
+			cmp.Compare(a.Section, b.Section),
+		)
 	})
 	n := min(evidencePerRow, len(all))
 	return all[:n], len(all) - n

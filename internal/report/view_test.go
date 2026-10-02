@@ -255,3 +255,16 @@ func TestBuildShowsMeaningChangedInCheck(t *testing.T) {
 		t.Errorf("evidence = %+v, want the release note attached", ev)
 	}
 }
+
+func TestPickEvidenceOrderIsStable(t *testing.T) {
+	idx := map[string][]noteMatch{"k": {
+		{Match: match.Match{Key: "k", Probability: 0.9, Release: "v10", Text: "x"}},
+		{Match: match.Match{Key: "k", Probability: 0.9, Release: "v1", Text: "0x"}},
+	}}
+	for range 200 {
+		got, _ := pickEvidence(idx, []string{"k"})
+		if len(got) != 2 || got[0].Release != "v1" {
+			t.Fatalf("evidence = %+v, want v1 first", got)
+		}
+	}
+}
