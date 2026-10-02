@@ -347,6 +347,28 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			user:           "a:\n  b: null\n",
 			defaultChanged: []string{"a.c"},
 		},
+		{
+			name:     "integer key under an open block",
+			old:      "tcp: {}\n",
+			new:      "tcp: {}\n",
+			user:     "tcp:\n  9000: default/svc:8080\n",
+			freeform: []string{"tcp.9000"},
+		},
+		{
+			name:    "integer key renamed in the new chart",
+			old:     "ports:\n  80: http\n",
+			new:     "ports:\n  web: 80\n",
+			user:    "ports:\n  80: custom\n",
+			removed: []string{"ports.80"},
+		},
+		{
+			name:           "integer and string keys side by side",
+			old:            "ports:\n  80: http\n  metrics: 9090\n",
+			new:            "ports:\n  80: web\n  metrics: 9090\n",
+			user:           "ports:\n  metrics: 9100\n  8080: alt\n",
+			undeclared:     []string{"ports.8080"},
+			defaultChanged: []string{"ports.80"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
