@@ -163,3 +163,10 @@ func TestMarkdownNoteRefsUseTheirOwnRepo(t *testing.T) {
 		t.Errorf("markdown missing %q:\n%s", want, b.String())
 	}
 }
+
+func TestMdTextBreaksMentions(t *testing.T) {
+	got := mdText("(@mapno) ping @grafana/team, mail a@b.example")
+	if want := "(@&#8203;mapno) ping @&#8203;grafana/team, mail a@b.example"; got != want {
+		t.Errorf("mdText = %q, want %q", got, want)
+	}
+}

@@ -64,7 +64,7 @@ func fenceFor(lines []string) string {
 }
 
 func neutralizeMentions(s string) string {
-	return mention.ReplaceAllString(s, "${1}&#64;${2}")
+	return mention.ReplaceAllString(s, "${1}@&#8203;${2}")
 }
 
 func truncateMarkdown(s string, limit int) string {

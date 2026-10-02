@@ -52,7 +52,7 @@
 
 **Could not be analyzed**
 
-- `charts/broken`: helm template charts/broken: exit status 1: Error: bad &#64;octo-org/admins &lt;img src=x&gt; second line
+- `charts/broken`: helm template charts/broken: exit status 1: Error: bad @&#8203;octo-org/admins &lt;img src=x&gt; second line
 
 <details><summary>Skipped</summary>
 

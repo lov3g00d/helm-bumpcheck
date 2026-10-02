@@ -33,7 +33,7 @@ func TestBatchMarkdownNeutralizesUntrustedText(t *testing.T) {
 		"| `velero 3.2.0 -> 4.0.1` | `values_prod.yaml` | 3 breaking, 0 to check, 1 unverified |\n",
 		"| `app 1.0.0 -> 2.0.0 \\| x @octo-org/admins <img src=https://evil.example/p.png> [l](https://evil.example)  click` | `values_a\\|b.yaml` | nothing in this upgrade affects the values you set |\n",
 		"### helm bumpcheck: `app 1.0.0 -> 2.0.0 | x @octo-org/admins <img src=https://evil.example/p.png> [l](https://evil.example)  click [values_a|b.yaml]`\n",
-		"- `charts/broken`: helm template charts/broken: exit status 1: Error: bad &#64;octo-org/admins &lt;img src=x&gt; second line\n",
+		"- `charts/broken`: helm template charts/broken: exit status 1: Error: bad @&#8203;octo-org/admins &lt;img src=x&gt; second line\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("markdown missing %q:\n%s", want, out)
