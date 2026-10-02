@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -140,6 +141,30 @@ func TestPullAndLoadDir(t *testing.T) {
 	}
 	if got := meta.DependencyNames(); len(got) != 1 || got[0] != "store" {
 		t.Errorf("dependencies = %v", got)
+	}
+}
+
+func TestLoad(t *testing.T) {
+	r := Runner{Bin: fakeHelm(t, pullScript)}
+	got, err := r.Load(context.Background(), Chart{Ref: "tempo", Version: "1.24.4", Repo: "https://x"}, filepath.Join(t.TempDir(), "new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(got.Dir, "tempo") || got.Meta.AppVersion != "2.9.0" || !reflect.DeepEqual(got.Defaults, map[string]any{"replicas": 1}) {
+		t.Errorf("Load = %+v", got)
+	}
+}
+
+func TestLoadRejectsBadValues(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{"Chart.yaml": "apiVersion: v2\nname: app\nversion: 1.0.0\n", "values.yaml": "a: [\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := Runner{}.Load(context.Background(), Chart{Ref: dir}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "parse values of "+dir) {
+		t.Errorf("err = %v, want a values parse error naming the chart", err)
 	}
 }
 

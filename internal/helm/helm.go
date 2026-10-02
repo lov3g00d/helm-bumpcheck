@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
 const (
@@ -93,6 +95,28 @@ func (r Runner) Pull(ctx context.Context, c Chart, dest string) (string, error) 
 		}
 	}
 	return "", fmt.Errorf("helm pull %s %s left no chart directory in %s", c.Ref, c.Version, dest)
+}
+
+type Loaded struct {
+	Dir      string
+	Defaults map[string]any
+	Meta     Metadata
+}
+
+func (r Runner) Load(ctx context.Context, c Chart, dest string) (Loaded, error) {
+	dir, err := r.Pull(ctx, c, dest)
+	if err != nil {
+		return Loaded{}, err
+	}
+	data, meta, err := LoadDir(dir)
+	if err != nil {
+		return Loaded{}, err
+	}
+	defaults, err := values.Parse(data)
+	if err != nil {
+		return Loaded{}, fmt.Errorf("parse values of %s %s: %w", c.Ref, c.Version, err)
+	}
+	return Loaded{Dir: dir, Defaults: defaults, Meta: meta}, nil
 }
 
 func LoadDir(dir string) ([]byte, Metadata, error) {

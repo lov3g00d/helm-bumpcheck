@@ -58,16 +58,10 @@ type spec struct {
 	chartNotes string
 }
 
-type chartSide struct {
-	dir      string
-	defaults map[string]any
-	meta     helm.Metadata
-}
-
 type chartStage struct {
 	spec    spec
-	old     chartSide
-	new     chartSide
+	old     helm.Loaded
+	new     helm.Loaded
 	sources []*fetchedNotes
 	memo    *match.Memo
 }
@@ -82,12 +76,12 @@ func prepareChart(ctx context.Context, d *deps, s spec, o options) (*chartStage,
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		var err error
-		cs.old, err = loadChart(gctx, d.helm, s.old, filepath.Join(work, "old"))
+		cs.old, err = d.helm.Load(gctx, s.old, filepath.Join(work, "old"))
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		cs.new, err = loadChart(gctx, d.helm, s.new, filepath.Join(work, "new"))
+		cs.new, err = d.helm.Load(gctx, s.new, filepath.Join(work, "new"))
 		return err
 	})
 	if err := g.Wait(); err != nil {
@@ -95,9 +89,9 @@ func prepareChart(ctx context.Context, d *deps, s spec, o options) (*chartStage,
 	}
 
 	if s.appRepo == "" && s.chartNotes == "" && o.detectNotes {
-		cs.spec.appRepo, cs.spec.chartNotes = detectRepos(cs.new.meta)
+		cs.spec.appRepo, cs.spec.chartNotes = detectRepos(cs.new.Meta)
 	}
-	for _, src := range notesSources(cs.spec, o, cs.old.meta.AppVersion, cs.new.meta.AppVersion) {
+	for _, src := range notesSources(cs.spec, o, cs.old.Meta.AppVersion, cs.new.Meta.AppVersion) {
 		cs.sources = append(cs.sources, fetchNotes(ctx, d, s.name, src))
 	}
 	if err := ctx.Err(); err != nil {
@@ -106,33 +100,17 @@ func prepareChart(ctx context.Context, d *deps, s spec, o options) (*chartStage,
 	return cs, nil
 }
 
-func loadChart(ctx context.Context, h helm.Runner, c helm.Chart, dest string) (chartSide, error) {
-	dir, err := h.Pull(ctx, c, dest)
-	if err != nil {
-		return chartSide{}, err
-	}
-	data, meta, err := helm.LoadDir(dir)
-	if err != nil {
-		return chartSide{}, err
-	}
-	defaults, err := values.Parse(data)
-	if err != nil {
-		return chartSide{}, fmt.Errorf("parse values of %s %s: %w", c.Ref, c.Version, err)
-	}
-	return chartSide{dir: dir, defaults: defaults, meta: meta}, nil
-}
-
 func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, oldValueFiles []string, o options) (report.Report, error) {
 	user, err := values.LoadFiles(valueFiles)
 	if err != nil {
 		return report.Report{}, err
 	}
-	subcharts := cs.new.meta.DependencyNames()
+	subcharts := cs.new.Meta.DependencyNames()
 	res := report.Report{
 		Chart: cs.spec.name, From: cs.spec.from, To: cs.spec.to,
-		AppFrom: cs.old.meta.AppVersion, AppTo: cs.new.meta.AppVersion,
+		AppFrom: cs.old.Meta.AppVersion, AppTo: cs.new.Meta.AppVersion,
 		Dependencies: subcharts,
-		Report:       values.Compare(cs.old.defaults, cs.new.defaults, user, subcharts),
+		Report:       values.Compare(cs.old.Defaults, cs.new.Defaults, user, subcharts),
 	}
 
 	if o.render {
@@ -142,11 +120,11 @@ func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, old
 		var oldErr, newErr error
 		g, gctx := errgroup.WithContext(ctx)
 		g.Go(func() error {
-			oldErr = d.helm.Template(gctx, helm.Chart{Ref: cs.old.dir}, oldValueFiles)
+			oldErr = d.helm.Template(gctx, helm.Chart{Ref: cs.old.Dir}, oldValueFiles)
 			return gctx.Err()
 		})
 		g.Go(func() error {
-			newErr = d.helm.Template(gctx, helm.Chart{Ref: cs.new.dir}, valueFiles)
+			newErr = d.helm.Template(gctx, helm.Chart{Ref: cs.new.Dir}, valueFiles)
 			return gctx.Err()
 		})
 		if err := g.Wait(); err != nil {

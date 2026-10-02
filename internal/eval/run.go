@@ -118,31 +118,18 @@ func (r Runner) compare(ctx context.Context, c Case, user map[string]any) (value
 	}
 	defer os.RemoveAll(work)
 
-	oldDefaults, _, err := r.defaults(ctx, c, c.From, filepath.Join(work, "old"))
+	chart := func(version string) helm.Chart {
+		return helm.Chart{Ref: c.Chart.Name, Version: version, Repo: c.Chart.Repo}
+	}
+	oldChart, err := r.Helm.Load(ctx, chart(c.From), filepath.Join(work, "old"))
 	if err != nil {
 		return values.Report{}, err
 	}
-	newDefaults, meta, err := r.defaults(ctx, c, c.To, filepath.Join(work, "new"))
+	newChart, err := r.Helm.Load(ctx, chart(c.To), filepath.Join(work, "new"))
 	if err != nil {
 		return values.Report{}, err
 	}
-	return values.Compare(oldDefaults, newDefaults, user, meta.DependencyNames()), nil
-}
-
-func (r Runner) defaults(ctx context.Context, c Case, version, dest string) (map[string]any, helm.Metadata, error) {
-	dir, err := r.Helm.Pull(ctx, helm.Chart{Ref: c.Chart.Name, Version: version, Repo: c.Chart.Repo}, dest)
-	if err != nil {
-		return nil, helm.Metadata{}, err
-	}
-	data, meta, err := helm.LoadDir(dir)
-	if err != nil {
-		return nil, helm.Metadata{}, err
-	}
-	defaults, err := values.Parse(data)
-	if err != nil {
-		return nil, helm.Metadata{}, fmt.Errorf("parse values of %s %s: %w", c.Chart.Name, version, err)
-	}
-	return defaults, meta, nil
+	return values.Compare(oldChart.Defaults, newChart.Defaults, user, newChart.Meta.DependencyNames()), nil
 }
 
 type Side struct {
