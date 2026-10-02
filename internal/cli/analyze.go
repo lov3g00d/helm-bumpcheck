@@ -167,8 +167,7 @@ func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, old
 }
 
 func newRender(oldErr, newErr error, kubeVersion string) *report.Render {
-	var kv *helm.KubeVersionError
-	if kubeVersion == "" && errors.As(newErr, &kv) {
+	if kv, ok := errors.AsType[*helm.KubeVersionError](newErr); kubeVersion == "" && ok {
 		return report.SkippedRender(fmt.Sprintf("the new %s, set --kube-version to your cluster version", kv.Message))
 	}
 	return report.NewRender(oldErr, newErr)
