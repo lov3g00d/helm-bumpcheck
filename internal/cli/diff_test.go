@@ -14,6 +14,8 @@ import (
 )
 
 const dirHelmScript = `#!/bin/sh
+if [ "$1" = template ] && [ -n "$FAKE_LOG" ]; then echo "$*" >> "$FAKE_LOG"; fi
+case "$3" in *broken*) echo "Error: chart is broken" >&2; exit 1 ;; esac
 case "$1 $2" in
   "show values") cat "$3/values.yaml" ;;
   "show chart") cat "$3/Chart.yaml" ;;
@@ -210,5 +212,47 @@ func TestRootStillRequiresVersions(t *testing.T) {
 	setup(t)
 	if _, err := execute(t, "mychart", "--from", "1.0.0"); err == nil {
 		t.Error("root command without --to should fail")
+	}
+}
+
+func TestDiffFailedChartExitsWithError(t *testing.T) {
+	g, _, _ := bumpHistory(t)
+	g.write(map[string]string{
+		"charts/broken/Chart.yaml":       "apiVersion: v2\nname: broken\nversion: 1.0.0\n",
+		"charts/broken/values.yaml":      "a: 1\n",
+		"charts/broken/values_prod.yaml": "a: 2\n",
+	})
+	base := g.commit("add broken")
+	g.write(map[string]string{"charts/broken/Chart.yaml": "apiVersion: v2\nname: broken\nversion: 1.1.0\n"})
+	head := g.commit("bump broken")
+
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head)
+	if err == nil || errors.Is(err, ErrFindings) || !strings.Contains(err.Error(), "1 chart could not be analyzed") {
+		t.Fatalf("err = %v, want an analysis error", err)
+	}
+	if !strings.Contains(out, "Failed\n  charts/broken: values_prod.yaml: ") {
+		t.Errorf("failed chart not reported:\n%s", out)
+	}
+}
+
+func TestDiffRendersOldChartWithBaseValues(t *testing.T) {
+	g, base, head := bumpHistory(t)
+	logFile := filepath.Join(t.TempDir(), "helm.log")
+	t.Setenv("FAKE_LOG", logFile)
+	if _, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldRender string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "/base/") && strings.Contains(line, "values_prod.yaml") {
+			oldRender = line
+		}
+	}
+	if oldRender == "" || strings.Count(oldRender, "/base/") != 2 {
+		t.Errorf("old chart not rendered with the base copy of values_prod.yaml:\n%s", data)
 	}
 }

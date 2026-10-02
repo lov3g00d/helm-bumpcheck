@@ -3,6 +3,7 @@ package gitdiff
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -47,31 +48,51 @@ func (r Repo) git(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func (r Repo) Resolve(ctx context.Context, rev string) (string, error) {
-	out, err := r.git(ctx, "rev-parse", "--verify", rev+"^{commit}")
+	out, err := r.git(ctx, "rev-parse", "--verify", "--end-of-options", rev+"^{commit}")
 	return strings.TrimSpace(string(out)), err
 }
 
 func (r Repo) MergeBase(ctx context.Context, a, b string) (string, error) {
-	out, err := r.git(ctx, "merge-base", a, b)
+	out, err := r.git(ctx, "merge-base", "--end-of-options", a, b)
 	return strings.TrimSpace(string(out)), err
 }
 
-func (r Repo) exists(ctx context.Context, rev, file string) bool {
-	_, err := r.git(ctx, "cat-file", "-e", rev+":"+file)
-	return err == nil
+func (r Repo) files(ctx context.Context, rev string) (map[string]bool, error) {
+	out, err := r.git(ctx, "ls-tree", "-r", "-z", "--name-only", rev)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, f := range splitNUL(out) {
+		set[f] = true
+	}
+	return set, nil
+}
+
+func splitNUL(out []byte) []string {
+	var names []string
+	for _, f := range strings.Split(string(out), "\x00") {
+		if f != "" {
+			names = append(names, f)
+		}
+	}
+	return names
 }
 
 func (r Repo) show(ctx context.Context, rev, file string) ([]byte, error) {
 	return r.git(ctx, "show", rev+":"+file)
 }
 
-func (r Repo) nested(ctx context.Context, rev, dir string) bool {
-	for d := path.Dir(dir); d != "." && d != "/"; d = path.Dir(d) {
-		if r.exists(ctx, rev, d+"/Chart.yaml") {
-			return true
-		}
+func nested(files map[string]bool, dir string) bool {
+	parent := path.Dir(dir)
+	if dir == "." || path.Base(parent) != "charts" {
+		return false
 	}
-	return false
+	owner := path.Dir(parent)
+	if owner == "." {
+		return files["Chart.yaml"]
+	}
+	return files[owner+"/Chart.yaml"]
 }
 
 type chartMeta struct {
@@ -84,12 +105,24 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 	if err != nil {
 		return nil, nil, err
 	}
-	baseSHA, err := r.MergeBase(ctx, base, headSHA)
+	baseRef, err := r.Resolve(ctx, base)
+	if err != nil {
+		return nil, nil, err
+	}
+	baseSHA, err := r.MergeBase(ctx, baseRef, headSHA)
+	if err != nil {
+		return nil, nil, err
+	}
+	baseFiles, err := r.files(ctx, baseSHA)
+	if err != nil {
+		return nil, nil, err
+	}
+	headFiles, err := r.files(ctx, headSHA)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	out, err := r.git(ctx, "diff", "--name-only", "--no-renames", baseSHA, headSHA)
+	out, err := r.git(ctx, "diff", "-z", "--name-only", "--no-renames", baseSHA, headSHA)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -98,17 +131,17 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 		charts []Chart
 		skips  []Skip
 	)
-	for _, file := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, file := range splitNUL(out) {
 		if path.Base(file) != "Chart.yaml" {
 			continue
 		}
 		dir := path.Dir(file)
-		inBase, inHead := r.exists(ctx, baseSHA, file), r.exists(ctx, headSHA, file)
-		rev := headSHA
+		inBase, inHead := baseFiles[file], headFiles[file]
+		tree := headFiles
 		if !inHead {
-			rev = baseSHA
+			tree = baseFiles
 		}
-		if r.nested(ctx, rev, dir) {
+		if nested(tree, dir) {
 			continue
 		}
 		switch {
@@ -122,11 +155,19 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 
 		oldMeta, err := r.meta(ctx, baseSHA, file)
 		if err != nil {
-			return nil, nil, err
+			if ctx.Err() != nil {
+				return nil, nil, err
+			}
+			skips = append(skips, Skip{Dir: dir, Reason: err.Error()})
+			continue
 		}
 		newMeta, err := r.meta(ctx, headSHA, file)
 		if err != nil {
-			return nil, nil, err
+			if ctx.Err() != nil {
+				return nil, nil, err
+			}
+			skips = append(skips, Skip{Dir: dir, Reason: err.Error()})
+			continue
 		}
 		if oldMeta.Version == newMeta.Version {
 			continue
@@ -137,8 +178,8 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			Base: baseSHA, Head: headSHA,
 		})
 	}
-	sort.Slice(charts, func(i, j int) bool { return charts[i].Dir < charts[j].Dir })
-	sort.Slice(skips, func(i, j int) bool { return skips[i].Dir < skips[j].Dir })
+	slices.SortFunc(charts, func(a, b Chart) int { return cmp.Compare(a.Dir, b.Dir) })
+	slices.SortFunc(skips, func(a, b Skip) int { return cmp.Compare(a.Dir, b.Dir) })
 	return charts, skips, nil
 }
 

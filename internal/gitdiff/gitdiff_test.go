@@ -148,3 +148,57 @@ func TestSafeJoin(t *testing.T) {
 		}
 	}
 }
+
+func TestChangedChartsEdgeCases(t *testing.T) {
+	r := newTestRepo(t)
+	r.write("Chart.yaml", chartYAML("umbrella", "1.0.0"))
+	r.write("charts/dep/Chart.yaml", chartYAML("dep", "1.0.0"))
+	r.write("café/Chart.yaml", chartYAML("cafe", "1.0.0"))
+	r.write("broken/Chart.yaml", chartYAML("broken", "1.0.0"))
+	base := r.commit("base")
+	r.write("charts/dep/Chart.yaml", chartYAML("dep", "2.0.0"))
+	r.write("café/Chart.yaml", chartYAML("cafe", "2.0.0"))
+	r.write("broken/Chart.yaml", "name: [unclosed\n")
+	head := r.commit("head")
+
+	charts, skips, err := Repo{Dir: r.dir}.ChangedCharts(context.Background(), base, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(charts) != 1 || charts[0].Dir != "café" || charts[0].ToVersion != "2.0.0" {
+		t.Errorf("charts = %+v, want only the non-ASCII chart; the root chart's subchart must be nested", charts)
+	}
+	if len(skips) != 1 || skips[0].Dir != "broken" || !strings.Contains(skips[0].Reason, "parse broken/Chart.yaml") {
+		t.Errorf("skips = %+v, want the malformed chart skipped", skips)
+	}
+}
+
+func TestChangedChartsRejectsOptionLikeRefs(t *testing.T) {
+	r, _, head := setupHistory(t)
+	for _, base := range []string{"--octopus", "-h"} {
+		if _, _, err := (Repo{Dir: r.dir}).ChangedCharts(context.Background(), base, head); err == nil {
+			t.Errorf("base %q was accepted", base)
+		}
+	}
+}
+
+func TestChangedChartsHonoursCancel(t *testing.T) {
+	r, base, head := setupHistory(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := (Repo{Dir: r.dir}).ChangedCharts(ctx, base, head); err == nil {
+		t.Error("cancelled context returned no error")
+	}
+}
+
+func TestNested(t *testing.T) {
+	files := map[string]bool{"Chart.yaml": true, "charts/a/Chart.yaml": true, "apps/b/Chart.yaml": true}
+	for dir, want := range map[string]bool{".": false, "charts/a": true, "apps/b": false} {
+		if got := nested(files, dir); got != want {
+			t.Errorf("nested(%q) = %v, want %v", dir, got, want)
+		}
+	}
+	if !nested(map[string]bool{"apps/b/Chart.yaml": true}, "apps/b/charts/c") {
+		t.Error("vendored subchart not reported as nested")
+	}
+}

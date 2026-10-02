@@ -138,6 +138,10 @@ func footer(res Report) []string {
 		out = append(out, fmt.Sprintf("Release notes (%s): %s %s -> %s, %d releases, %d entries, %d questions",
 			n.Source, n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions))
 	}
+	if n := len(res.Dependencies); n > 0 {
+		out = append(out, fmt.Sprintf("The chart has %d %s (%s); keys under them are not compared against the subchart defaults.",
+			n, plural(n, "subchart", "subcharts"), strings.Join(res.Dependencies, ", ")))
+	}
 	if n := len(res.Standard); n > 0 {
 		out = append(out, fmt.Sprintf("%d %s in standard Kubernetes blocks (%s) not listed. Use -o json to list them.",
 			n, plural(n, "key", "keys"), strings.Join(values.StandardBlocks(res.Standard), ", ")))

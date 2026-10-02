@@ -12,6 +12,7 @@ type Batch struct {
 	Head    string   `json:"head"`
 	Reports []Report `json:"reports"`
 	Skipped []Skip   `json:"skipped"`
+	Failed  []Skip   `json:"failed"`
 }
 
 func WriteBatch(w io.Writer, format string, b Batch) error {
@@ -46,13 +47,18 @@ func writeBatchText(w io.Writer, b Batch) error {
 			return err
 		}
 	}
-	if len(b.Skipped) == 0 {
-		return nil
-	}
 	var sb strings.Builder
-	sb.WriteString("\nSkipped\n")
-	for _, s := range b.Skipped {
-		fmt.Fprintf(&sb, "  %s: %s\n", s.Path, s.Reason)
+	for _, group := range []struct {
+		name  string
+		items []Skip
+	}{{"Failed", b.Failed}, {"Skipped", b.Skipped}} {
+		if len(group.items) == 0 {
+			continue
+		}
+		fmt.Fprintf(&sb, "\n%s\n", group.name)
+		for _, s := range group.items {
+			fmt.Fprintf(&sb, "  %s: %s\n", s.Path, s.Reason)
+		}
 	}
 	_, err := io.WriteString(w, sb.String())
 	return err
@@ -75,6 +81,12 @@ func writeBatchMarkdown(w io.Writer, b Batch) error {
 		for _, r := range b.Reports {
 			body.WriteString("\n---\n\n")
 			body.WriteString(markdown(build(r), details))
+		}
+		if len(b.Failed) > 0 {
+			body.WriteString("\n**Could not be analyzed**\n\n")
+			for _, s := range b.Failed {
+				fmt.Fprintf(&body, "- %s: %s\n", mdCode(s.Path), mdText(s.Reason))
+			}
 		}
 		if len(b.Skipped) > 0 {
 			body.WriteString("\n<details><summary>Skipped</summary>\n\n")

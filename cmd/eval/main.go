@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/eval"
 	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
@@ -30,7 +31,7 @@ func main() {
 	flag.BoolVar(&cfg.skipJev, "skip-jev", false, "score only the keyword baseline, without calling Jev")
 	flag.Parse()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	err := run(ctx, os.Stdout, cfg)
 	stop()
 	if err != nil {

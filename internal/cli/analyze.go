@@ -15,14 +15,15 @@ import (
 )
 
 type spec struct {
-	name       string
-	from       string
-	to         string
-	old        helm.Chart
-	new        helm.Chart
-	valueFiles []string
-	appRepo    string
-	chartNotes string
+	name          string
+	from          string
+	to            string
+	old           helm.Chart
+	new           helm.Chart
+	valueFiles    []string
+	oldValueFiles []string
+	appRepo       string
+	chartNotes    string
 }
 
 type chartInfo struct {
@@ -57,7 +58,11 @@ func analyze(ctx context.Context, h helm.Runner, s spec, o options) (report.Repo
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		var err error
-		oldChart, err = fetchChart(gctx, h, s.old, o.render, s.valueFiles)
+		oldValues := s.oldValueFiles
+		if oldValues == nil {
+			oldValues = s.valueFiles
+		}
+		oldChart, err = fetchChart(gctx, h, s.old, o.render, oldValues)
 		return err
 	})
 	g.Go(func() error {
@@ -72,7 +77,8 @@ func analyze(ctx context.Context, h helm.Runner, s spec, o options) (report.Repo
 	res := report.Report{
 		Chart: s.name, From: s.from, To: s.to,
 		AppFrom: oldChart.meta.AppVersion, AppTo: newChart.meta.AppVersion,
-		Report: values.Compare(oldChart.defaults, newChart.defaults, user),
+		Dependencies: newChart.meta.DependencyNames(),
+		Report:       values.Compare(oldChart.defaults, newChart.defaults, user),
 	}
 	if o.render {
 		res.Render = report.NewRender(oldChart.renderErr, newChart.renderErr)
@@ -128,4 +134,11 @@ func fetchChart(ctx context.Context, h helm.Runner, c helm.Chart, render bool, v
 	}
 	err := g.Wait()
 	return info, err
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,8 @@ import (
 )
 
 var githubRepo = regexp.MustCompile(`github\.com[/:]([\w.-]+)/([\w.-]+)`)
+
+var errNoValues = errors.New("no values files match")
 
 type diffOptions struct {
 	base       string
@@ -70,25 +73,30 @@ func runDiff(ctx context.Context, w io.Writer, o options, d diffOptions) error {
 	}
 	defer os.RemoveAll(tmp)
 
-	batch := report.Batch{Base: d.base, Head: d.head, Reports: []report.Report{}, Skipped: []report.Skip{}}
+	batch := report.Batch{Base: d.base, Head: d.head, Reports: []report.Report{}, Skipped: []report.Skip{}, Failed: []report.Skip{}}
 	for _, s := range skips {
 		batch.Skipped = append(batch.Skipped, report.Skip{Path: s.Dir, Reason: s.Reason})
 	}
 
 	for i, c := range charts {
 		reports, err := diffChart(ctx, h, repo, c, filepath.Join(tmp, strconv.Itoa(i)), o, d)
-		if err != nil {
-			if ctx.Err() != nil {
-				return err
-			}
+		switch {
+		case err == nil:
+			batch.Reports = append(batch.Reports, reports...)
+		case ctx.Err() != nil:
+			return err
+		case errors.Is(err, errNoValues):
 			batch.Skipped = append(batch.Skipped, report.Skip{Path: c.Dir, Reason: err.Error()})
-			continue
+		default:
+			batch.Failed = append(batch.Failed, report.Skip{Path: c.Dir, Reason: err.Error()})
 		}
-		batch.Reports = append(batch.Reports, reports...)
 	}
 
 	if err := report.WriteBatch(w, o.output, batch); err != nil {
 		return err
+	}
+	if n := len(batch.Failed); n > 0 {
+		return fmt.Errorf("%d %s could not be analyzed", n, plural(n, "chart", "charts"))
 	}
 	return failing(o, batch.Reports...)
 }
@@ -108,7 +116,7 @@ func diffChart(ctx context.Context, h helm.Runner, repo gitdiff.Repo, c gitdiff.
 		return nil, err
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("no values files match %s", strings.Join(d.valueGlobs, ", "))
+		return nil, fmt.Errorf("%w %s", errNoValues, strings.Join(d.valueGlobs, ", "))
 	}
 
 	var appRepo, chartNotes string
@@ -118,15 +126,20 @@ func diffChart(ctx context.Context, h helm.Runner, repo gitdiff.Repo, c gitdiff.
 
 	var out []report.Report
 	for _, file := range files {
+		oldValues := filepath.Join(oldDir, file)
+		if _, err := os.Stat(oldValues); err != nil {
+			oldValues = filepath.Join(newDir, file)
+		}
 		res, err := analyze(ctx, h, spec{
-			name:       c.Name,
-			from:       c.FromVersion,
-			to:         c.ToVersion,
-			old:        helm.Chart{Ref: oldDir},
-			new:        helm.Chart{Ref: newDir},
-			valueFiles: []string{filepath.Join(newDir, file)},
-			appRepo:    appRepo,
-			chartNotes: chartNotes,
+			name:          c.Name,
+			from:          c.FromVersion,
+			to:            c.ToVersion,
+			old:           helm.Chart{Ref: oldDir},
+			new:           helm.Chart{Ref: newDir},
+			valueFiles:    []string{filepath.Join(newDir, file)},
+			oldValueFiles: []string{oldValues},
+			appRepo:       appRepo,
+			chartNotes:    chartNotes,
 		}, o)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", file, err)

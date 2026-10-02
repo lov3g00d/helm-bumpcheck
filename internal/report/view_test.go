@@ -128,3 +128,11 @@ func TestFooterSummarizesStandardKeys(t *testing.T) {
 		t.Errorf("verdict = %q", v.Verdict)
 	}
 }
+
+func TestFooterWarnsAboutSubcharts(t *testing.T) {
+	v := build(Report{Chart: "c", From: "1", To: "2", Dependencies: []string{"minio", "agent"}})
+	want := "The chart has 2 subcharts (minio, agent); keys under them are not compared against the subchart defaults."
+	if len(v.Footer) != 1 || v.Footer[0] != want {
+		t.Errorf("footer = %q", v.Footer)
+	}
+}

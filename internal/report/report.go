@@ -6,13 +6,14 @@ import (
 )
 
 type Report struct {
-	Chart   string `json:"chart"`
-	From    string `json:"from"`
-	To      string `json:"to"`
-	AppFrom string `json:"appFrom,omitempty"`
-	AppTo   string `json:"appTo,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Values  string `json:"values,omitempty"`
+	Chart        string   `json:"chart"`
+	From         string   `json:"from"`
+	To           string   `json:"to"`
+	AppFrom      string   `json:"appFrom,omitempty"`
+	AppTo        string   `json:"appTo,omitempty"`
+	Path         string   `json:"path,omitempty"`
+	Values       string   `json:"values,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
 	values.Report
 	Render *Render  `json:"render,omitempty"`
 	Notes  []*Notes `json:"notes,omitempty"`

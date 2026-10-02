@@ -26,9 +26,27 @@ type Chart struct {
 }
 
 type Metadata struct {
-	Name       string `yaml:"name"`
-	Version    string `yaml:"version"`
-	AppVersion string `yaml:"appVersion"`
+	Name         string       `yaml:"name"`
+	Version      string       `yaml:"version"`
+	AppVersion   string       `yaml:"appVersion"`
+	Dependencies []Dependency `yaml:"dependencies"`
+}
+
+type Dependency struct {
+	Name  string `yaml:"name"`
+	Alias string `yaml:"alias"`
+}
+
+func (m Metadata) DependencyNames() []string {
+	var names []string
+	for _, d := range m.Dependencies {
+		if d.Alias != "" {
+			names = append(names, d.Alias)
+		} else {
+			names = append(names, d.Name)
+		}
+	}
+	return names
 }
 
 func Detect() (Runner, error) {
