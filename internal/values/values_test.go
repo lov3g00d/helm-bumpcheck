@@ -249,7 +249,8 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 		name                        string
 		old, new, user              string
 		removed, freeform, standard []string
-		undeclared                  []string
+		undeclared, typeChanged     []string
+		defaultChanged              []string
 	}{
 		{
 			name:     "free-form block that gains defaults is not removed",
@@ -312,6 +313,40 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			user:       "sidecar:\n  limits:\n    cpu: 1\n",
 			undeclared: []string{"sidecar.limits.cpu"},
 		},
+		{
+			name: "null ancestor drops changed defaults under it",
+			old:  "probe:\n  path: /a\n  port: 80\n",
+			new:  "probe:\n  path: /b\n  port: 81\n",
+			user: "probe: null\n",
+		},
+		{
+			name:           "null deep ancestor",
+			old:            "a:\n  b:\n    c: 1\nd: 1\n",
+			new:            "a:\n  b:\n    c: 2\nd: 2\n",
+			user:           "a:\n  b: null\n",
+			defaultChanged: []string{"d"},
+		},
+		{
+			name:       "user map over a scalar default hides its change",
+			old:        "extra: 1\n",
+			new:        "extra: 2\n",
+			user:       "extra:\n  a: 1\n",
+			undeclared: []string{"extra.a"},
+		},
+		{
+			name:       "scalar over a declared block hides changes under it",
+			old:        "probe:\n  path: /a\n",
+			new:        "probe:\n  path: /b\n",
+			user:       "probe: false\n",
+			undeclared: []string{"probe"},
+		},
+		{
+			name:           "null sibling does not hide a change",
+			old:            "a:\n  b: 1\n  c: 1\n",
+			new:            "a:\n  b: 2\n  c: 2\n",
+			user:           "a:\n  b: null\n",
+			defaultChanged: []string{"a.c"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -328,6 +363,15 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			check("Freeform", got.Freeform, tt.freeform)
 			check("Standard", got.Standard, tt.standard)
 			check("Undeclared", got.Undeclared, tt.undeclared)
+			var typed, changed []string
+			for _, tc := range got.TypeChanged {
+				typed = append(typed, tc.Path)
+			}
+			for _, c := range got.DefaultChanged {
+				changed = append(changed, c.Path)
+			}
+			check("TypeChanged", typed, tt.typeChanged)
+			check("DefaultChanged", changed, tt.defaultChanged)
 		})
 	}
 }

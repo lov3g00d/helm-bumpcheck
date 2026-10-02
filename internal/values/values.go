@@ -232,7 +232,7 @@ func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 		if !ok {
 			continue
 		}
-		if _, set := userL[p]; set {
+		if overridden(user, o.Segments) {
 			continue
 		}
 		if !reflect.DeepEqual(o.Value, n.Value) {
@@ -256,6 +256,19 @@ func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 		slices.Sort(list)
 	}
 	return r
+}
+
+func overridden(user map[string]any, segments []string) bool {
+	for i := 1; i <= len(segments); i++ {
+		v, ok := lookup(user, segments[:i])
+		if !ok {
+			return false
+		}
+		if _, isMap := v.(map[string]any); !isMap || i == len(segments) {
+			return true
+		}
+	}
+	return false
 }
 
 func kind(v any) string {
