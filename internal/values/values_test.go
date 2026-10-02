@@ -260,6 +260,7 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 		undeclared, typeChanged     []string
 		defaultChanged, subcharts   []string
 		dropped, removedDeps        []string
+		nowDeclared                 []string
 	}{
 		{
 			name:     "free-form block that gains defaults is not removed",
@@ -452,6 +453,44 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			undeclared: []string{"redis.auth.password"},
 		},
 		{
+			name:        "key the new chart starts declaring",
+			old:         "server:\n  replicas: 1\n",
+			new:         "server:\n  replicas: 1\n  hostNetwork: false\n",
+			user:        "server:\n  hostNetwork: true\n",
+			nowDeclared: []string{"server.hostNetwork"},
+		},
+		{
+			name: "newly declared key set to its new default",
+			old:  "server:\n  replicas: 1\n",
+			new:  "server:\n  replicas: 1\n  hostNetwork: false\n",
+			user: "server:\n  hostNetwork: false\n",
+		},
+		{
+			name: "newly declared key under a block that was open",
+			old:  "config: {}\n",
+			new:  "config:\n  level: info\n",
+			user: "config:\n  level: debug\n",
+		},
+		{
+			name: "newly declared key under a standard block",
+			old:  "server:\n  podAnnotations:\n    a: b\n",
+			new:  "server:\n  podAnnotations:\n    a: b\n    c: d\n",
+			user: "server:\n  podAnnotations:\n    c: e\n",
+		},
+		{
+			name:      "newly declared key under an old subchart",
+			old:       "replicas: 1\n",
+			new:       "redis:\n  auth: true\n",
+			user:      "redis:\n  auth: false\n",
+			subcharts: []string{"redis"},
+		},
+		{
+			name: "newly declared global key",
+			old:  "replicas: 1\n",
+			new:  "global:\n  imageRegistry: docker.io\n",
+			user: "global:\n  imageRegistry: mirror.local\n",
+		},
+		{
 			name:      "standard block under a subchart stays standard",
 			old:       "postgresql:\n  resources: {}\n",
 			new:       "postgresql:\n  resources: {}\n",
@@ -485,6 +524,7 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 			check("TypeChanged", typed, tt.typeChanged)
 			check("DefaultChanged", changed, tt.defaultChanged)
 			check("RemovedDependencies", got.RemovedDependencies, tt.removedDeps)
+			check("NowDeclared", got.NowDeclared, tt.nowDeclared)
 		})
 	}
 }
@@ -494,13 +534,14 @@ func TestNoteKeys(t *testing.T) {
 		Removed:        []string{"legacy.enabled"},
 		TypeChanged:    []TypeChange{{Path: "ports", Keys: []string{"ports.http", "ports.https"}}},
 		MeaningChanged: []MeaningChange{{Path: "image.repository", Siblings: []string{"image.registry"}}},
+		NowDeclared:    []string{"server.hostNetwork"},
 		Freeform:       []string{"extraConfig.team"},
 		Standard:       []string{"resources.limits.cpu"},
 		Undeclared:     []string{"typo"},
 		DefaultChanged: []Change{{Path: "port"}},
 		Added:          []string{"newThing"},
 	}
-	want := []string{"legacy.enabled", "ports.http", "ports.https", "image.repository", "extraConfig.team", "typo"}
+	want := []string{"legacy.enabled", "ports.http", "ports.https", "image.repository", "server.hostNetwork", "extraConfig.team", "typo"}
 	if got := r.NoteKeys(); !reflect.DeepEqual(got, want) {
 		t.Errorf("NoteKeys = %v, want %v", got, want)
 	}

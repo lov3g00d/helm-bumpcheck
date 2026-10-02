@@ -27,6 +27,7 @@ For the keys in your values files, against the old and new chart:
 - **render**: the new chart fails `helm template` with your values while the old one rendered.
 - **default changed**: a default you rely on changed.
 - **meaning changed**: a key you set whose scalar default changed, or whose block gained a setting with a non-empty default, such as `image.repository` when the chart adds `image.registry: quay.io` beside it. Your value still applies, but the chart may now read it differently.
+- **declared**: a key you set that the old chart did not declare and the new one does. The old chart most likely ignored it, so your value may only now take effect.
 - **free-form and undeclared**: keys the chart cannot vouch for, such as app config passed through a `config: {}` block, or keys under a subchart or `global` that the parent chart does not declare.
 - **release notes** (optional): which release-note entries concern those keys, judged by [TypeSafe Jev](https://docs.typesafe.ai).
 

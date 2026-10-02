@@ -73,6 +73,11 @@ func build(res Report) view {
 		row.Evidence, row.More = pickEvidence(idx, []string{m.Path})
 		v.Check = append(v.Check, row)
 	}
+	for _, k := range r.NowDeclared {
+		row := row{Kind: "declared", Path: k, Detail: "the old chart did not declare it, so your value may only now take effect"}
+		row.Evidence, row.More = pickEvidence(idx, []string{k})
+		v.Check = append(v.Check, row)
+	}
 	for _, c := range r.DefaultChanged {
 		v.Check = append(v.Check, row{Kind: "default", Path: c.Path, Detail: describeChange(c)})
 	}

@@ -156,6 +156,16 @@ func TestBuildShowsDroppedSubcharts(t *testing.T) {
 	}
 }
 
+func TestBuildShowsNowDeclaredKeysInCheck(t *testing.T) {
+	v := build(Report{Chart: "c", From: "1", To: "2", Report: values.Report{NowDeclared: []string{"server.hostNetwork"}}})
+	if len(v.Check) != 1 || v.Check[0].Kind != "declared" || v.Check[0].Path != "server.hostNetwork" {
+		t.Fatalf("check = %+v", v.Check)
+	}
+	if v.Verdict != "Result: 0 breaking, 1 to check, 0 unverified" {
+		t.Errorf("verdict = %q", v.Verdict)
+	}
+}
+
 func TestFooterShowsModelAndFailures(t *testing.T) {
 	r := veleroReport()
 	r.Notes[0].Stats = match.Stats{Requests: 4, Failed: 1, Questions: 6, Model: "jev-1.13.0"}

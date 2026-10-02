@@ -19,6 +19,7 @@
     }
   ],
   "meaningChanged": null,
+  "nowDeclared": null,
   "freeform": [
     "schedules.daily.schedule"
   ],

@@ -59,6 +59,7 @@ type Report struct {
 	Removed        []string        `json:"removed"`
 	TypeChanged    []TypeChange    `json:"typeChanged"`
 	MeaningChanged []MeaningChange `json:"meaningChanged"`
+	NowDeclared    []string        `json:"nowDeclared"`
 	Freeform       []string        `json:"freeform"`
 	Standard       []string        `json:"standard"`
 	Undeclared     []string        `json:"undeclared"`
@@ -76,7 +77,7 @@ func (r Report) NoteKeys() []string {
 	for _, mc := range r.MeaningChanged {
 		meaning = append(meaning, mc.Path)
 	}
-	return slices.Concat(r.Removed, typed, meaning, r.Freeform, r.Undeclared)
+	return slices.Concat(r.Removed, typed, meaning, r.NowDeclared, r.Freeform, r.Undeclared)
 }
 
 func (r Report) Linked() map[string][]string {
@@ -295,6 +296,9 @@ func Compare(oldDefaults, newDefaults, user map[string]any, deps Dependencies) R
 		o, inOld := oldL[p]
 		if n, inNew := newL[p]; inNew {
 			if !inOld {
+				if newlyDeclared(oldDefaults, leaf, n.Value, deps.Old) {
+					r.NowDeclared = append(r.NowDeclared, p)
+				}
 				continue
 			}
 			if mc, ok := meaningChange(o.Value, n.Value, oldDefaults, newDefaults, user, leaf.Segments); ok {
@@ -337,10 +341,21 @@ func Compare(oldDefaults, newDefaults, user map[string]any, deps Dependencies) R
 	slices.SortFunc(r.TypeChanged, func(a, b TypeChange) int { return cmp.Compare(a.Path, b.Path) })
 	slices.SortFunc(r.MeaningChanged, func(a, b MeaningChange) int { return cmp.Compare(a.Path, b.Path) })
 	slices.SortFunc(r.DefaultChanged, func(a, b Change) int { return cmp.Compare(a.Path, b.Path) })
-	for _, list := range [][]string{r.Removed, r.Freeform, r.Standard, r.Undeclared, r.Added} {
+	for _, list := range [][]string{r.Removed, r.NowDeclared, r.Freeform, r.Standard, r.Undeclared, r.Added} {
 		slices.Sort(list)
 	}
 	return r
+}
+
+func newlyDeclared(oldDefaults map[string]any, leaf Leaf, newDefault any, oldDeps []string) bool {
+	segs := leaf.Segments
+	if segs[0] == "global" || slices.Contains(oldDeps, segs[0]) || reflect.DeepEqual(leaf.Value, newDefault) {
+		return false
+	}
+	if _, open := openBlock(oldDefaults, segs); open {
+		return false
+	}
+	return !standardAncestor(oldDefaults, segs)
 }
 
 func meaningChange(oldValue, newValue any, oldDefaults, newDefaults, user map[string]any, segments []string) (MeaningChange, bool) {
