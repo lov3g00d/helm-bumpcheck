@@ -29,7 +29,7 @@ type diffOptions struct {
 }
 
 func newDiffCmd(o *options) *cobra.Command {
-	var d diffOptions
+	var do diffOptions
 	cmd := &cobra.Command{
 		Use:   "diff [--base REF] [--head REF]",
 		Short: "Check every chart whose version changed between two git revisions",
@@ -45,39 +45,39 @@ are read straight from git objects, so .gitattributes has no effect.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiff(cmd.Context(), cmd.OutOrStdout(), *o, d)
+			return runDiff(cmd.Context(), cmd.OutOrStdout(), *o, do)
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&d.base, "base", "origin/main", "revision to compare against; its merge base with --head is used")
-	f.StringVar(&d.head, "head", "HEAD", "revision with the chart bumps")
-	f.StringVarP(&d.repoDir, "repo-dir", "C", ".", "git repository to read")
-	f.StringSliceVar(&d.valueGlobs, "values-glob", []string{"values_*.yaml", "values-*.yaml"}, "values files in each chart directory to check, one report per file")
-	f.BoolVar(&d.notes, "notes", false, "check release notes of GitHub repos found in each chart's sources (needs TYPESAFE_API_KEY)")
+	f.StringVar(&do.base, "base", "origin/main", "revision to compare against; its merge base with --head is used")
+	f.StringVar(&do.head, "head", "HEAD", "revision with the chart bumps")
+	f.StringVarP(&do.repoDir, "repo-dir", "C", ".", "git repository to read")
+	f.StringSliceVar(&do.valueGlobs, "values-glob", []string{"values_*.yaml", "values-*.yaml"}, "values files in each chart directory to check, one report per file")
+	f.BoolVar(&do.notes, "notes", false, "check release notes of GitHub repos found in each chart's sources (needs TYPESAFE_API_KEY)")
 	return cmd
 }
 
-func runDiff(ctx context.Context, w io.Writer, o options, d diffOptions) error {
-	o.detectNotes = d.notes
-	deps, cleanup, err := newDeps(o)
+func runDiff(ctx context.Context, w io.Writer, o options, do diffOptions) error {
+	o.detectNotes = do.notes
+	d, cleanup, err := newDeps(o)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	repo := gitdiff.Repo{Dir: d.repoDir}
-	charts, skips, err := repo.ChangedCharts(ctx, d.base, d.head)
+	repo := gitdiff.Repo{Dir: do.repoDir}
+	charts, skips, err := repo.ChangedCharts(ctx, do.base, do.head)
 	if err != nil {
 		return err
 	}
 
-	batch := report.Batch{Base: d.base, Head: d.head, Bumped: len(charts), Reports: []report.Report{}, Skipped: []report.Skip{}, Failed: []report.Skip{}}
+	batch := report.Batch{Base: do.base, Head: do.head, Bumped: len(charts), Reports: []report.Report{}, Skipped: []report.Skip{}, Failed: []report.Skip{}}
 	for _, s := range skips {
 		batch.Skipped = append(batch.Skipped, report.Skip{Path: s.Dir, Reason: s.Reason})
 	}
 
 	for i, c := range charts {
-		reports, err := diffChart(ctx, deps, repo, c, filepath.Join(deps.work, "git", strconv.Itoa(i)), o, d)
+		reports, err := diffChart(ctx, d, repo, c, filepath.Join(d.work, "git", strconv.Itoa(i)), o, do)
 		switch {
 		case err == nil:
 			batch.Reports = append(batch.Reports, reports...)
@@ -99,7 +99,7 @@ func runDiff(ctx context.Context, w io.Writer, o options, d diffOptions) error {
 	return failing(o, batch.Reports...)
 }
 
-func diffChart(ctx context.Context, deps *deps, repo gitdiff.Repo, c gitdiff.Chart, work string, o options, d diffOptions) ([]report.Report, error) {
+func diffChart(ctx context.Context, d *deps, repo gitdiff.Repo, c gitdiff.Chart, work string, o options, do diffOptions) ([]report.Report, error) {
 	oldDir, err := repo.Extract(ctx, c.Base, c.Dir, filepath.Join(work, "base"))
 	if err != nil {
 		return nil, err
@@ -109,15 +109,15 @@ func diffChart(ctx context.Context, deps *deps, repo gitdiff.Repo, c gitdiff.Cha
 		return nil, err
 	}
 
-	files, err := matchValues(newDir, d.valueGlobs)
+	files, err := matchValues(newDir, do.valueGlobs)
 	if err != nil {
 		return nil, err
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("%w %s", errNoValues, strings.Join(d.valueGlobs, ", "))
+		return nil, fmt.Errorf("%w %s", errNoValues, strings.Join(do.valueGlobs, ", "))
 	}
 
-	cs, err := prepareChart(ctx, deps, spec{
+	cs, err := prepareChart(ctx, d, spec{
 		name:      c.Name,
 		from:      c.FromVersion,
 		to:        c.ToVersion,
@@ -135,7 +135,7 @@ func diffChart(ctx context.Context, deps *deps, repo gitdiff.Repo, c gitdiff.Cha
 		if _, err := os.Stat(oldValues); err != nil {
 			oldValues = filepath.Join(newDir, file)
 		}
-		res, err := analyzeValues(ctx, deps, cs, []string{filepath.Join(newDir, file)}, []string{oldValues}, o)
+		res, err := analyzeValues(ctx, d, cs, []string{filepath.Join(newDir, file)}, []string{oldValues}, o)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", file, err)
 		}
