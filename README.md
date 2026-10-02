@@ -76,6 +76,8 @@ helm bumpcheck diff --base origin/main --notes
 
 A chart whose dependencies changed in `Chart.yaml`, `requirements.yaml` or their lock files without a version bump is listed as skipped, with each dependency change named; dependency upgrades are not analyzed yet. When the version did change, the dependency changes are listed under the report. Dependencies that are not vendored under `charts/` are fetched with `helm dependency build` into the extracted copy before rendering, never into your repository.
 
+Both revisions are read from git objects. Symlinks in a chart are followed the way helm follows them, and the file they point to is copied in their place. A link that leaves the repository, points to nothing or loops makes the chart fail.
+
 `--notes` picks the app and chart release-note repos from each chart's `sources`. `-o json` and `-o markdown` change the output; the markdown is meant for a pull request comment. [examples/github-pr-comment.yml](examples/github-pr-comment.yml) posts it on every pull request that touches a `Chart.yaml`, `requirements.yaml` or lock file.
 
 ## Release notes

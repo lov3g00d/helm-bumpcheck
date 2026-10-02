@@ -495,3 +495,82 @@ func TestGitReportsContextErrors(t *testing.T) {
 		})
 	}
 }
+
+func (r *testRepo) link(name, target string) {
+	r.t.Helper()
+	full := filepath.Join(r.dir, name)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := os.Symlink(target, full); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+func TestExtractFollowsSymlinks(t *testing.T) {
+	r := newTestRepo(t)
+	r.write("shared/defaults.yaml", "legacy:\n  enabled: false\n")
+	r.write("shared/prod.yaml", "legacy:\n  enabled: true\n")
+	r.write("common/templates/cm.yaml", "kind: ConfigMap\n")
+	r.write("common/templates/helpers/_x.tpl", "{{/* x */}}\n")
+	r.link("common/templates/sa.yaml", "../sa.yaml")
+	r.write("common/sa.yaml", "kind: ServiceAccount\n")
+	r.write("app/Chart.yaml", chartYAML("app", "1.0.0"))
+	r.link("app/values.yaml", "../shared/defaults.yaml")
+	r.link("app/values-prod.yaml", "../shared/prod.yaml")
+	r.link("app/templates", "../common/templates")
+	r.link("app/shared", "../shared")
+	r.link("app/chained.yaml", "shared/prod.yaml")
+	rev := r.commit("chart with symlinks")
+
+	dest := t.TempDir()
+	dir, err := Repo{Dir: r.dir}.Extract(context.Background(), rev, "app", dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for file, want := range map[string]string{
+		"values.yaml":              "legacy:\n  enabled: false\n",
+		"values-prod.yaml":         "legacy:\n  enabled: true\n",
+		"templates/cm.yaml":        "kind: ConfigMap\n",
+		"templates/helpers/_x.tpl": "{{/* x */}}\n",
+		"templates/sa.yaml":        "kind: ServiceAccount\n",
+		"shared/prod.yaml":         "legacy:\n  enabled: true\n",
+		"chained.yaml":             "legacy:\n  enabled: true\n",
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(file)))
+		if err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", file, got, err, want)
+		}
+	}
+	err = filepath.WalkDir(dest, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.Type()&os.ModeSymlink != 0 {
+			t.Errorf("%s extracted as a symlink", p)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExtractRejectsBadSymlinks(t *testing.T) {
+	for name, tc := range map[string]struct {
+		link, target, want string
+	}{
+		"escaping": {"app/values.yaml", "../../outside", "escapes the repository"},
+		"absolute": {"app/values.yaml", "/etc/passwd", "escapes the repository"},
+		"dangling": {"app/values.yaml", "missing.yaml", "points to nothing"},
+		"loop":     {"app/loop", ".", "too many levels of symbolic links"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newTestRepo(t)
+			r.write("app/Chart.yaml", chartYAML("app", "1.0.0"))
+			r.link(tc.link, tc.target)
+			rev := r.commit("bad link")
+			_, err := Repo{Dir: r.dir}.Extract(context.Background(), rev, "app", t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), tc.link) || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want one naming %s that says %q", err, tc.link, tc.want)
+			}
+		})
+	}
+}

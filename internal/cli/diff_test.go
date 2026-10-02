@@ -250,6 +250,46 @@ func TestDiffFailsWhenTheHeadChartCannotBeRead(t *testing.T) {
 	}
 }
 
+func TestDiffFollowsSymlinkedValues(t *testing.T) {
+	g := newGitFixture(t)
+	g.write(map[string]string{
+		"shared/defaults.yaml":   "legacy:\n  enabled: false\n",
+		"app/Chart.yaml":         "apiVersion: v2\nname: app\nversion: 1.0.0\n",
+		"app/values-prod.yaml":   "legacy:\n  enabled: true\n",
+		"other/Chart.yaml":       "apiVersion: v2\nname: other\nversion: 1.0.0\n",
+		"other/values.yaml":      "legacy:\n  enabled: false\n",
+		"shared/other-prod.yaml": "legacy:\n  enabled: true\n",
+	})
+	if err := os.Symlink("../shared/defaults.yaml", filepath.Join(g.dir, "app", "values.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../shared/other-prod.yaml", filepath.Join(g.dir, "other", "values-prod.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	base := g.commit("base")
+	g.write(map[string]string{
+		"shared/defaults.yaml": "replicas: 1\n",
+		"app/Chart.yaml":       "apiVersion: v2\nname: app\nversion: 2.0.0\n",
+		"other/Chart.yaml":     "apiVersion: v2\nname: other\nversion: 2.0.0\n",
+		"other/values.yaml":    "replicas: 1\n",
+	})
+	head := g.commit("bump")
+
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--fail-on", "removed", "--render=false")
+	if !errors.Is(err, ErrFindings) {
+		t.Fatalf("err = %v, want findings\n%s", err, out)
+	}
+	for _, want := range []string{
+		"app 1.0.0 -> 2.0.0 [values-prod.yaml]\nResult: 1 breaking",
+		"other 1.0.0 -> 2.0.0 [values-prod.yaml]\nResult: 1 breaking",
+		"  removed       legacy.enabled  no longer in the chart",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestDiffReadsDuplicateKeysLikeHelm(t *testing.T) {
 	g := newGitFixture(t)
 	g.write(map[string]string{

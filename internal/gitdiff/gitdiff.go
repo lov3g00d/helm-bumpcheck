@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -320,34 +321,75 @@ func orNone(s string) string {
 	return cmp.Or(s, "(none)")
 }
 
+const maxLinkHops = 8
+
 type blob struct {
 	oid  string
 	path string
 	mode os.FileMode
 }
 
+type entry struct {
+	mode string
+	oid  string
+}
+
+func (r Repo) lsTree(ctx context.Context, rev string, paths ...string) (map[string]entry, []string, error) {
+	out, err := r.git(ctx, append([]string{"ls-tree", "-r", "-z", "--full-tree", rev, "--"}, paths...)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	entries := map[string]entry{}
+	var names []string
+	for _, line := range splitNUL(out) {
+		info, name, ok := strings.Cut(line, "\t")
+		fields := strings.Fields(info)
+		if !ok || len(fields) != 3 {
+			return nil, nil, fmt.Errorf("git ls-tree %s: unexpected entry %q", rev, line)
+		}
+		entries[name] = entry{mode: fields[0], oid: fields[2]}
+		names = append(names, name)
+	}
+	return entries, names, nil
+}
+
+func fileMode(mode string) (os.FileMode, bool) {
+	switch mode {
+	case "100644":
+		return 0o644, true
+	case "100755":
+		return 0o755, true
+	}
+	return 0, false
+}
+
 func (r Repo) Extract(ctx context.Context, rev, dir, dest string) (string, error) {
-	out, err := r.git(ctx, "ls-tree", "-r", "-z", "--full-tree", rev, "--", dir)
+	entries, names, err := r.lsTree(ctx, rev, dir)
 	if err != nil {
 		return "", err
 	}
-	var blobs []blob
-	for _, entry := range splitNUL(out) {
-		info, name, ok := strings.Cut(entry, "\t")
-		fields := strings.Fields(info)
-		if !ok || len(fields) != 3 {
-			return "", fmt.Errorf("git ls-tree %s: unexpected entry %q", rev, entry)
+	var (
+		blobs []blob
+		links []string
+	)
+	for _, name := range names {
+		e := entries[name]
+		if mode, ok := fileMode(e.mode); ok {
+			blobs = append(blobs, blob{oid: e.oid, path: name, mode: mode})
+		} else if e.mode == "120000" {
+			links = append(links, name)
 		}
-		var mode os.FileMode
-		switch fields[0] {
-		case "100644":
-			mode = 0o644
-		case "100755":
-			mode = 0o755
-		default:
-			continue
+	}
+	if len(links) > 0 {
+		t, err := r.newLinkTree(ctx, rev)
+		if err != nil {
+			return "", err
 		}
-		blobs = append(blobs, blob{oid: fields[2], path: name, mode: mode})
+		for _, link := range links {
+			if blobs, err = t.materialize(ctx, link, link, 0, blobs); err != nil {
+				return "", err
+			}
+		}
 	}
 	if len(blobs) == 0 {
 		return "", fmt.Errorf("no files under %s at %s", dir, rev)
@@ -356,6 +398,92 @@ func (r Repo) Extract(ctx context.Context, rev, dir, dest string) (string, error
 		return "", err
 	}
 	return filepath.Join(dest, filepath.FromSlash(dir)), nil
+}
+
+type linkTree struct {
+	repo    Repo
+	rev     string
+	entries map[string]entry
+	names   []string
+	targets map[string]string
+}
+
+func (r Repo) newLinkTree(ctx context.Context, rev string) (*linkTree, error) {
+	entries, names, err := r.lsTree(ctx, rev)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(names)
+	return &linkTree{repo: r, rev: rev, entries: entries, names: names, targets: map[string]string{}}, nil
+}
+
+func (t *linkTree) materialize(ctx context.Context, src, dst string, hops int, blobs []blob) ([]blob, error) {
+	resolved, hops, err := t.resolve(ctx, src, hops)
+	if err != nil {
+		return nil, fmt.Errorf("symlink %s at %s: %w", dst, t.rev, err)
+	}
+	if mode, ok := fileMode(t.entries[resolved].mode); ok {
+		return append(blobs, blob{oid: t.entries[resolved].oid, path: dst, mode: mode}), nil
+	}
+	prefix := resolved + "/"
+	if resolved == "." {
+		prefix = ""
+	}
+	start, _ := slices.BinarySearch(t.names, prefix)
+	found := false
+	for _, name := range t.names[start:] {
+		if !strings.HasPrefix(name, prefix) {
+			break
+		}
+		found = true
+		if _, ok := fileMode(t.entries[name].mode); !ok && t.entries[name].mode != "120000" {
+			continue
+		}
+		if blobs, err = t.materialize(ctx, name, path.Join(dst, strings.TrimPrefix(name, prefix)), hops, blobs); err != nil {
+			return nil, err
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("symlink %s at %s points to nothing (%s)", dst, t.rev, resolved)
+	}
+	return blobs, nil
+}
+
+func (t *linkTree) resolve(ctx context.Context, p string, hops int) (string, int, error) {
+	cur := "."
+	for part := range strings.SplitSeq(p, "/") {
+		cur = path.Join(cur, part)
+		if t.entries[cur].mode != "120000" {
+			continue
+		}
+		if hops++; hops > maxLinkHops {
+			return "", hops, errors.New("too many levels of symbolic links")
+		}
+		target, err := t.target(ctx, cur)
+		if err != nil {
+			return "", hops, err
+		}
+		next := path.Join(path.Dir(cur), target)
+		if path.IsAbs(target) || !filepath.IsLocal(next) {
+			return "", hops, fmt.Errorf("%s -> %s escapes the repository", cur, target)
+		}
+		if cur, hops, err = t.resolve(ctx, next, hops); err != nil {
+			return "", hops, err
+		}
+	}
+	return cur, hops, nil
+}
+
+func (t *linkTree) target(ctx context.Context, link string) (string, error) {
+	if target, ok := t.targets[link]; ok {
+		return target, nil
+	}
+	out, err := t.repo.git(ctx, "cat-file", "blob", t.entries[link].oid)
+	if err != nil {
+		return "", err
+	}
+	t.targets[link] = string(out)
+	return string(out), nil
 }
 
 func (r Repo) writeBlobs(ctx context.Context, blobs []blob, dest string) error {
