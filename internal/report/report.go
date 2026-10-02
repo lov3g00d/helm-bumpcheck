@@ -14,6 +14,8 @@ type Report struct {
 	Path         string   `json:"path,omitempty"`
 	Values       string   `json:"values,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
+
+	DependencyChanges []string `json:"dependencyChanges,omitempty"`
 	values.Report
 	Render *Render  `json:"render,omitempty"`
 	Notes  []*Notes `json:"notes,omitempty"`

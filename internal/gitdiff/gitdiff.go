@@ -27,12 +27,13 @@ type Repo struct {
 }
 
 type Chart struct {
-	Dir         string
-	Name        string
-	FromVersion string
-	ToVersion   string
-	Base        string
-	Head        string
+	Dir          string
+	Name         string
+	FromVersion  string
+	ToVersion    string
+	Base         string
+	Head         string
+	Dependencies []string
 }
 
 type Skip struct {
@@ -179,8 +180,9 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			skips = append(skips, Skip{Dir: dir, Reason: err.Error()})
 			continue
 		}
+		changes := dependencyChanges(oldMeta.Dependencies, newMeta.Dependencies)
 		if oldMeta.Version == newMeta.Version {
-			if changes := dependencyChanges(oldMeta.Dependencies, newMeta.Dependencies); len(changes) > 0 {
+			if len(changes) > 0 {
 				skips = append(skips, Skip{Dir: dir, Reason: "dependency changes not analyzed: " + strings.Join(changes, "; ")})
 			}
 			continue
@@ -189,6 +191,7 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			Dir: dir, Name: newMeta.Name,
 			FromVersion: oldMeta.Version, ToVersion: newMeta.Version,
 			Base: baseSHA, Head: headSHA,
+			Dependencies: changes,
 		})
 	}
 	return charts, skips, nil

@@ -138,7 +138,7 @@ func diffChart(ctx context.Context, deps *deps, repo gitdiff.Repo, c gitdiff.Cha
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", file, err)
 		}
-		res.Path, res.Values = c.Dir, file
+		res.Path, res.Values, res.DependencyChanges = c.Dir, file, c.Dependencies
 		out = append(out, res)
 	}
 	return out, nil

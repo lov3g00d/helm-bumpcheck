@@ -390,3 +390,23 @@ func TestDiffKeysUnderADroppedSubchartAreRemoved(t *testing.T) {
 		}
 	}
 }
+
+func TestDiffListsDependencyChangesOfABump(t *testing.T) {
+	g := newGitFixture(t)
+	g.write(map[string]string{
+		"charts/umb/Chart.yaml":       "apiVersion: v2\nname: umb\nversion: 1.0.0\ndependencies:\n  - name: tempo\n    version: 1.10.0\n    repository: https://grafana.github.io/helm-charts\n",
+		"charts/umb/values.yaml":      "tempo:\n  enabled: true\n",
+		"charts/umb/values_prod.yaml": "tempo:\n  replicas: 2\n",
+	})
+	base := g.commit("base")
+	g.write(map[string]string{"charts/umb/Chart.yaml": "apiVersion: v2\nname: umb\nversion: 1.1.0\ndependencies:\n  - name: tempo\n    version: 1.24.4\n    repository: https://grafana.github.io/helm-charts\n"})
+	head := g.commit("bump tempo")
+
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--render=false")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Dependency changes: tempo 1.10.0 -> 1.24.4.") {
+		t.Errorf("dependency change missing:\n%s", out)
+	}
+}

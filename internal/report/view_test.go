@@ -177,6 +177,13 @@ func TestBuildShowsNowDeclaredKeysInCheck(t *testing.T) {
 	}
 }
 
+func TestFooterListsDependencyChanges(t *testing.T) {
+	v := build(Report{Chart: "c", From: "1", To: "2", DependencyChanges: []string{"tempo 1.10.0 -> 1.24.4", "redis 19.0.0 removed"}})
+	if want := "Dependency changes: tempo 1.10.0 -> 1.24.4; redis 19.0.0 removed."; !slices.Contains(v.Footer, want) {
+		t.Errorf("footer = %q, want %q", v.Footer, want)
+	}
+}
+
 func TestFooterShowsModelAndFailures(t *testing.T) {
 	r := veleroReport()
 	r.Notes[0].Stats = match.Stats{Requests: 4, Failed: 1, Questions: 6, Model: "jev-1.13.0"}

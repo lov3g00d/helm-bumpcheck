@@ -215,6 +215,9 @@ func footer(res Report) []string {
 			out = append(out, fmt.Sprintf("Release notes (%s): %s", n.Source, n.Truncated))
 		}
 	}
+	if len(res.DependencyChanges) > 0 {
+		out = append(out, "Dependency changes: "+strings.Join(res.DependencyChanges, "; ")+".")
+	}
 	if n := len(res.Dependencies); n > 0 {
 		out = append(out, fmt.Sprintf("The chart has %d %s (%s); keys under them are not compared against the subchart defaults.",
 			n, plural(n, "subchart", "subcharts"), strings.Join(res.Dependencies, ", ")))

@@ -263,6 +263,22 @@ func TestChangedChartsDependencyOnly(t *testing.T) {
 	}
 }
 
+func TestChangedChartsListsDependencyChangesOfABump(t *testing.T) {
+	r := newTestRepo(t)
+	r.write("umb/Chart.yaml", chartYAML("umb", "1.0.0")+"dependencies:\n  - name: tempo\n    version: 1.10.0\n    repository: https://grafana.github.io/helm-charts\n")
+	base := r.commit("base")
+	r.write("umb/Chart.yaml", chartYAML("umb", "1.1.0")+"dependencies:\n  - name: tempo\n    version: 1.24.4\n    repository: https://grafana.github.io/helm-charts\n")
+	head := r.commit("bump")
+
+	charts, _, err := Repo{Dir: r.dir}.ChangedCharts(context.Background(), base, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(charts) != 1 || !reflect.DeepEqual(charts[0].Dependencies, []string{"tempo 1.10.0 -> 1.24.4"}) {
+		t.Errorf("charts = %+v, want the tempo bump listed", charts)
+	}
+}
+
 func TestChangedChartsFromSubdirectory(t *testing.T) {
 	r, base, head := setupHistory(t)
 	t.Setenv("GIT_CONFIG_COUNT", "1")
