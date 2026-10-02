@@ -38,8 +38,11 @@ const rootLong = `Check what a chart version bump does to the values you set.
 The report lists keys the new chart removed or changed the type of,
 defaults that changed under keys you rely on, keys inside free-form
 blocks the chart cannot vouch for, and whether both chart versions
-render with your values. With --app-repo or --chart-notes it also asks
-TypeSafe Jev which release-note entries concern those keys.
+render with your values. It also flags keys whose meaning may have
+changed because their default or a new sibling setting changed, keys
+the new chart starts declaring, and undeclared keys under a subchart or
+global. With --app-repo or --chart-notes it asks TypeSafe Jev
+which release-note entries concern those keys.
 
 Environment:
   TYPESAFE_API_KEY   enables release-note matching

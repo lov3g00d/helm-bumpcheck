@@ -68,7 +68,7 @@ helm bumpcheck tempo --repo https://grafana.github.io/helm-charts \
   --from 1.10.0 --to 1.24.4 -f values.yaml --app-repo grafana/tempo
 ```
 
-Every chart whose `Chart.yaml` version changed in a git range, one report per `values_*.yaml` or `values-*.yaml` in the chart directory:
+Every chart whose `Chart.yaml` version changed in a git range, one report per `values_*.yaml` or `values-*.yaml` in the chart directory. `--values-glob` changes the pattern, and a bumped chart with no matching file is listed as skipped:
 
 ```
 helm bumpcheck diff --base origin/main --notes

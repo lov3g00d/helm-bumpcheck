@@ -62,6 +62,19 @@ func TestHelpListsEnvironment(t *testing.T) {
 	}
 }
 
+func TestHelpListsEveryFindingKind(t *testing.T) {
+	out, err := execute(t, "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	help := strings.Join(strings.Fields(out), " ")
+	for _, kind := range []string{"removed", "changed the type", "defaults that changed", "free-form", "render", "meaning may have changed", "starts declaring", "undeclared keys under a subchart or global", "release-note"} {
+		if !strings.Contains(help, kind) {
+			t.Errorf("--help does not mention %q:\n%s", kind, out)
+		}
+	}
+}
+
 func TestCompletion(t *testing.T) {
 	tests := []struct {
 		args []string
