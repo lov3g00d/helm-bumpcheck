@@ -45,9 +45,12 @@ jobs:
           helm bumpcheck diff "$@" > bumpcheck.md
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           set -e
+          if [ -s bumpcheck.md ]; then
+            echo "report=true" >> "$GITHUB_OUTPUT"
+          fi
           cat bumpcheck.md >> "$GITHUB_STEP_SUMMARY"
       - name: comment
-        if: env.SAME_REPO == 'true' && steps.check.outputs.exit != '1'
+        if: env.SAME_REPO == 'true' && steps.check.outputs.report == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -57,7 +60,7 @@ jobs:
             | tail -n 1)"
           if [ -n "$id" ]; then
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@bumpcheck.md > /dev/null
-          else
+          elif ! grep -q '^No chart versions changed between' bumpcheck.md; then
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@bumpcheck.md > /dev/null
           fi
       - name: fail on breaking findings

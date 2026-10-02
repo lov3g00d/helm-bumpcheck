@@ -78,7 +78,7 @@ A chart whose dependencies changed in `Chart.yaml`, `requirements.yaml` or their
 
 Both revisions are read from git objects. Symlinks in a chart are followed the way helm follows them, and the file they point to is copied in their place. A link that leaves the repository, points to nothing or loops makes the chart fail.
 
-`--notes` picks the app and chart release-note repos from each chart's `sources`. `-o json` and `-o markdown` change the output; the markdown is meant for a pull request comment. [examples/github-pr-comment.yml](examples/github-pr-comment.yml) posts it on every pull request that touches a `Chart.yaml`, `requirements.yaml` or lock file.
+`--notes` picks the app and chart release-note repos from each chart's `sources`. `-o json` and `-o markdown` change the output; the markdown is meant for a pull request comment. [examples/github-pr-comment.yml](examples/github-pr-comment.yml) posts it on pull requests that touch a `Chart.yaml`, `requirements.yaml` or lock file, and updates the comment whenever a report was written, also when a chart could not be analyzed. It opens no new comment when no chart version changed.
 
 ## Release notes
 
