@@ -112,7 +112,7 @@ func TestDiffText(t *testing.T) {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"2 reports checked between " + base[:12] + " and " + head[:12] + ".",
+		"2 charts bumped between " + base[:12] + " and " + head[:12] + ": 2 reports checked, 2 skipped.",
 		"app 1.0.0 -> 2.0.0 (app 1.0 -> 2.0) [values_prod.yaml]\nResult: 1 breaking, 1 to check, 0 unverified\n",
 		"  removed       legacy.enabled  no longer in the chart",
 		"  default       replicas  1 -> 2",
@@ -248,5 +248,59 @@ func TestDiffRendersOldChartWithBaseValues(t *testing.T) {
 	}
 	if oldRender == "" || strings.Count(oldRender, "/base/") != 2 {
 		t.Errorf("old chart not rendered with the base copy of values_prod.yaml:\n%s", data)
+	}
+}
+
+func TestDiffHeadlineCountsSkippedAndFailedBumps(t *testing.T) {
+	g := newGitFixture(t)
+	g.write(map[string]string{
+		"charts/plain/Chart.yaml":          "apiVersion: v2\nname: plain\nversion: 1.0.0\n",
+		"charts/plain/values.yaml":         "a: 1\n",
+		"charts/broken/Chart.yaml":         "apiVersion: v2\nname: broken\nversion: 1.0.0\n",
+		"charts/broken/values.yaml":        "a: 1\n",
+		"charts/broken/values_prod.yaml":   "a: 2\n",
+		"charts/umbrella/Chart.yaml":       "apiVersion: v2\nname: umbrella\nversion: 1.0.0\ndependencies:\n  - name: redis\n    version: 19.0.0\n",
+		"charts/umbrella/values_prod.yaml": "redis: {}\n",
+	})
+	base := g.commit("base")
+	g.write(map[string]string{"charts/umbrella/Chart.yaml": "apiVersion: v2\nname: umbrella\nversion: 1.0.0\ndependencies:\n  - name: redis\n    version: 20.0.0\n"})
+	depOnly := g.commit("bump redis")
+	g.write(map[string]string{"charts/plain/Chart.yaml": "apiVersion: v2\nname: plain\nversion: 1.1.0\n"})
+	skipped := g.commit("bump plain")
+	g.write(map[string]string{
+		"charts/broken/Chart.yaml":  "apiVersion: v2\nname: broken\nversion: 1.1.0\n",
+		"charts/broken/values.yaml": "a: [unclosed\n",
+	})
+	failed := g.commit("bump broken")
+
+	for _, tc := range []struct {
+		name, base, head, want string
+		bumped                 int
+		wantErr                bool
+	}{
+		{"dependency only", base, depOnly, "0 charts bumped between " + base[:12] + " and " + depOnly[:12] + ": 1 skipped.\n", 0, false},
+		{"all skipped", depOnly, skipped, "1 chart bumped between " + depOnly[:12] + " and " + skipped[:12] + ": 1 skipped.\n", 1, false},
+		{"all failed", skipped, failed, "1 chart bumped between " + skipped[:12] + " and " + failed[:12] + ": 1 failed.\n", 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := execute(t, "diff", "-C", g.dir, "--base", tc.base, "--head", tc.head, "--fail-on", "removed")
+			if (err != nil) != tc.wantErr || errors.Is(err, ErrFindings) {
+				t.Fatalf("err = %v, wantErr %v\n%s", err, tc.wantErr, out)
+			}
+			if !strings.HasPrefix(out, tc.want) {
+				t.Errorf("headline:\n%s\nwant prefix %q", out, tc.want)
+			}
+
+			out, _ = execute(t, "diff", "-C", g.dir, "--base", tc.base, "--head", tc.head, "-o", "json")
+			var b report.Batch
+			if err := json.Unmarshal([]byte(out), &b); err != nil || b.Bumped != tc.bumped {
+				t.Errorf("json bumped = %d, %v; want %d\n%s", b.Bumped, err, tc.bumped, out)
+			}
+		})
+	}
+
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", depOnly, "-o", "markdown")
+	if err != nil || !strings.Contains(out, "- `charts/umbrella`: dependency changes not analyzed: redis 19.0.0 -&gt; 20.0.0\n") {
+		t.Errorf("err %v, dependency skip missing from markdown:\n%s", err, out)
 	}
 }

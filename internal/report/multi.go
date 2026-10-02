@@ -10,6 +10,7 @@ import (
 type Batch struct {
 	Base    string   `json:"base"`
 	Head    string   `json:"head"`
+	Bumped  int      `json:"bumped"`
 	Reports []Report `json:"reports"`
 	Skipped []Skip   `json:"skipped"`
 	Failed  []Skip   `json:"failed"`
@@ -31,10 +32,20 @@ func WriteBatch(w io.Writer, format string, b Batch) error {
 }
 
 func batchSummary(b Batch) string {
-	if len(b.Reports) == 0 {
+	var counts []string
+	if n := len(b.Reports); n > 0 {
+		counts = append(counts, fmt.Sprintf("%d %s checked", n, plural(n, "report", "reports")))
+	}
+	if n := len(b.Skipped); n > 0 {
+		counts = append(counts, fmt.Sprintf("%d skipped", n))
+	}
+	if n := len(b.Failed); n > 0 {
+		counts = append(counts, fmt.Sprintf("%d failed", n))
+	}
+	if b.Bumped == 0 && len(counts) == 0 {
 		return fmt.Sprintf("No chart versions changed between %s and %s.", short(b.Base), short(b.Head))
 	}
-	return fmt.Sprintf("%d %s checked between %s and %s.", len(b.Reports), plural(len(b.Reports), "report", "reports"), short(b.Base), short(b.Head))
+	return fmt.Sprintf("%d %s bumped between %s and %s: %s.", b.Bumped, plural(b.Bumped, "chart", "charts"), short(b.Base), short(b.Head), strings.Join(counts, ", "))
 }
 
 func writeBatchText(w io.Writer, b Batch) error {

@@ -202,3 +202,61 @@ func TestNested(t *testing.T) {
 		t.Error("vendored subchart not reported as nested")
 	}
 }
+
+func TestChangedChartsDependencyOnly(t *testing.T) {
+	r := newTestRepo(t)
+	r.write("umbrella/Chart.yaml", chartYAML("umbrella", "1.0.0")+`dependencies:
+  - name: redis
+    version: 19.0.0
+    repository: https://charts.bitnami.com/bitnami
+  - name: redis
+    alias: cache
+    version: ">=1.2, <2.0"
+    repository: https://charts.bitnami.com/bitnami
+  - name: postgresql
+    version: 12.0.0
+    repository: https://charts.bitnami.com/bitnami
+`)
+	r.write("legacy/Chart.yaml", "apiVersion: v1\nname: legacy\nversion: 1.0.0\n")
+	r.write("legacy/requirements.yaml", "dependencies:\n  - name: mysql\n    version: 1.0.0\n    repository: https://old.example\n")
+	r.write("both/Chart.yaml", "apiVersion: v1\nname: both\nversion: 1.0.0\n")
+	r.write("both/requirements.yaml", "dependencies:\n  - name: nginx\n    version: 1.0.0\n")
+	r.write("meta/Chart.yaml", chartYAML("meta", "1.0.0")+"dependencies:\n  - name: redis\n    version: 19.0.0\n    condition: redis.enabled\n")
+	base := r.commit("base")
+
+	r.write("umbrella/Chart.yaml", chartYAML("umbrella", "1.0.0")+`dependencies:
+  - name: redis
+    version: 20.0.0
+    repository: https://charts.bitnami.com/bitnami
+  - name: redis
+    alias: cache
+    version: ">=2.0, <3.0"
+    repository: oci://registry-1.docker.io/bitnamicharts
+  - name: valkey
+    version: 1.0.0
+    repository: https://valkey.example
+`)
+	r.write("legacy/requirements.yaml", "dependencies:\n  - name: mysql\n    version: 2.0.0\n    repository: https://old.example\n")
+	r.write("both/Chart.yaml", "apiVersion: v1\nname: both\nversion: 1.0.0\ndescription: touched\n")
+	r.write("both/requirements.yaml", "dependencies:\n  - name: nginx\n    version: 1.1.0\n")
+	r.write("meta/Chart.yaml", chartYAML("meta", "1.0.0")+"dependencies:\n  - name: redis\n    version: 19.0.0\n    condition: redis.on\n")
+	head := r.commit("bump dependencies")
+
+	charts, skips, err := Repo{Dir: r.dir}.ChangedCharts(context.Background(), base, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(charts) != 0 {
+		t.Errorf("charts = %+v, want none", charts)
+	}
+	want := []Skip{
+		{Dir: "both", Reason: "dependency changes not analyzed: nginx 1.0.0 -> 1.1.0"},
+		{Dir: "legacy", Reason: "dependency changes not analyzed: mysql 1.0.0 -> 2.0.0"},
+		{Dir: "umbrella", Reason: "dependency changes not analyzed: cache (redis) >=1.2, <2.0 -> >=2.0, <3.0; " +
+			"cache (redis) repository https://charts.bitnami.com/bitnami -> oci://registry-1.docker.io/bitnamicharts; " +
+			"postgresql 12.0.0 removed; redis 19.0.0 -> 20.0.0; valkey 1.0.0 added"},
+	}
+	if !reflect.DeepEqual(skips, want) {
+		t.Errorf("skips = %+v\nwant %+v", skips, want)
+	}
+}

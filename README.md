@@ -54,6 +54,8 @@ Every chart whose `Chart.yaml` version changed in a git range, one report per `v
 helm bumpcheck diff --base origin/main --notes
 ```
 
+A chart whose dependencies changed in `Chart.yaml` or `requirements.yaml` without a version bump is listed as skipped, with each dependency change named; dependency upgrades are not analyzed yet.
+
 `--notes` picks the app and chart release-note repos from each chart's `sources`. `-o json` and `-o markdown` change the output; the markdown is meant for a pull request comment. [examples/github-pr-comment.yml](examples/github-pr-comment.yml) posts it on every pull request that touches a `Chart.yaml`.
 
 ## Release notes

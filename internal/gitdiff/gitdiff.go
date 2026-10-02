@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -100,8 +101,16 @@ func nested(files map[string]bool, dir string) bool {
 }
 
 type chartMeta struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version"`
+	Name         string       `yaml:"name"`
+	Version      string       `yaml:"version"`
+	Dependencies []dependency `yaml:"dependencies"`
+}
+
+type dependency struct {
+	Name       string `yaml:"name"`
+	Version    string `yaml:"version"`
+	Repository string `yaml:"repository"`
+	Alias      string `yaml:"alias"`
 }
 
 func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []Skip, error) {
@@ -130,17 +139,24 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 	if err != nil {
 		return nil, nil, err
 	}
+	dirs := map[string]bool{}
+	for _, file := range splitNUL(out) {
+		switch path.Base(file) {
+		case "Chart.yaml", "requirements.yaml":
+			dirs[path.Dir(file)] = true
+		}
+	}
 
 	var (
 		charts []Chart
 		skips  []Skip
 	)
-	for _, file := range splitNUL(out) {
-		if path.Base(file) != "Chart.yaml" {
+	for _, dir := range slices.Sorted(maps.Keys(dirs)) {
+		file := path.Join(dir, "Chart.yaml")
+		inBase, inHead := baseFiles[file], headFiles[file]
+		if !inBase && !inHead {
 			continue
 		}
-		dir := path.Dir(file)
-		inBase, inHead := baseFiles[file], headFiles[file]
 		tree := headFiles
 		if !inHead {
 			tree = baseFiles
@@ -157,7 +173,7 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			continue
 		}
 
-		oldMeta, err := r.meta(ctx, baseSHA, file)
+		oldMeta, err := r.meta(ctx, baseSHA, dir, baseFiles)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, nil, err
@@ -165,7 +181,7 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			skips = append(skips, Skip{Dir: dir, Reason: err.Error()})
 			continue
 		}
-		newMeta, err := r.meta(ctx, headSHA, file)
+		newMeta, err := r.meta(ctx, headSHA, dir, headFiles)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, nil, err
@@ -174,6 +190,9 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			continue
 		}
 		if oldMeta.Version == newMeta.Version {
+			if changes := dependencyChanges(oldMeta.Dependencies, newMeta.Dependencies); len(changes) > 0 {
+				skips = append(skips, Skip{Dir: dir, Reason: "dependency changes not analyzed: " + strings.Join(changes, "; ")})
+			}
 			continue
 		}
 		charts = append(charts, Chart{
@@ -182,21 +201,89 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			Base: baseSHA, Head: headSHA,
 		})
 	}
-	slices.SortFunc(charts, func(a, b Chart) int { return cmp.Compare(a.Dir, b.Dir) })
-	slices.SortFunc(skips, func(a, b Skip) int { return cmp.Compare(a.Dir, b.Dir) })
 	return charts, skips, nil
 }
 
-func (r Repo) meta(ctx context.Context, rev, file string) (chartMeta, error) {
-	data, err := r.show(ctx, rev, file)
-	if err != nil {
+func (r Repo) meta(ctx context.Context, rev, dir string, files map[string]bool) (chartMeta, error) {
+	var m chartMeta
+	if err := r.decode(ctx, rev, path.Join(dir, "Chart.yaml"), &m); err != nil {
 		return chartMeta{}, err
 	}
-	var m chartMeta
-	if err := yaml.Unmarshal(data, &m); err != nil {
-		return chartMeta{}, fmt.Errorf("parse %s at %s: %w", file, rev, err)
+	if req := path.Join(dir, "requirements.yaml"); files[req] {
+		var v1 struct {
+			Dependencies []dependency `yaml:"dependencies"`
+		}
+		if err := r.decode(ctx, rev, req, &v1); err != nil {
+			return chartMeta{}, err
+		}
+		if v1.Dependencies != nil {
+			m.Dependencies = v1.Dependencies
+		}
 	}
 	return m, nil
+}
+
+func (r Repo) decode(ctx context.Context, rev, file string, v any) error {
+	data, err := r.show(ctx, rev, file)
+	if err != nil {
+		return err
+	}
+	if err := yaml.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("parse %s at %s: %w", file, rev, err)
+	}
+	return nil
+}
+
+func dependencyChanges(oldDeps, newDeps []dependency) []string {
+	index := func(deps []dependency) map[string]dependency {
+		m := make(map[string]dependency, len(deps))
+		for _, d := range deps {
+			m[cmp.Or(d.Alias, d.Name)] = d
+		}
+		return m
+	}
+	before, after := index(oldDeps), index(newDeps)
+	keys := map[string]bool{}
+	for k := range before {
+		keys[k] = true
+	}
+	for k := range after {
+		keys[k] = true
+	}
+
+	var changes []string
+	for _, k := range slices.Sorted(maps.Keys(keys)) {
+		o, inOld := before[k]
+		n, inNew := after[k]
+		switch {
+		case !inOld:
+			changes = append(changes, fmt.Sprintf("%s %s added", n.label(), orNone(n.Version)))
+		case !inNew:
+			changes = append(changes, fmt.Sprintf("%s %s removed", o.label(), orNone(o.Version)))
+		default:
+			if o.Name != n.Name {
+				changes = append(changes, fmt.Sprintf("%s chart %s -> %s", k, o.Name, n.Name))
+			}
+			if o.Version != n.Version {
+				changes = append(changes, fmt.Sprintf("%s %s -> %s", n.label(), orNone(o.Version), orNone(n.Version)))
+			}
+			if o.Repository != n.Repository {
+				changes = append(changes, fmt.Sprintf("%s repository %s -> %s", n.label(), orNone(o.Repository), orNone(n.Repository)))
+			}
+		}
+	}
+	return changes
+}
+
+func (d dependency) label() string {
+	if d.Alias != "" && d.Alias != d.Name {
+		return d.Alias + " (" + d.Name + ")"
+	}
+	return d.Name
+}
+
+func orNone(s string) string {
+	return cmp.Or(s, "(none)")
 }
 
 func (r Repo) Extract(ctx context.Context, rev, dir, dest string) (string, error) {

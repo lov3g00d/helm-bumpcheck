@@ -35,8 +35,9 @@ func newDiffCmd(o *options) *cobra.Command {
 		Short: "Check every chart whose version changed between two git revisions",
 		Long: `Find charts whose Chart.yaml version changed between the merge base of
 --base and --head, and check each one against every values file in its
-directory. Nothing in the repository is modified; both revisions are
-read with git archive.`,
+directory. Charts whose dependencies changed without a version bump are
+listed as skipped. Nothing in the repository is modified; both revisions
+are read with git archive.`,
 		Example: `  helm bumpcheck diff --base origin/main
   helm bumpcheck diff --base origin/main -o markdown --fail-on removed,type,render
   helm bumpcheck diff -C ../deployments --base main --head my-branch --notes`,
@@ -70,7 +71,7 @@ func runDiff(ctx context.Context, w io.Writer, o options, d diffOptions) error {
 		return err
 	}
 
-	batch := report.Batch{Base: d.base, Head: d.head, Reports: []report.Report{}, Skipped: []report.Skip{}, Failed: []report.Skip{}}
+	batch := report.Batch{Base: d.base, Head: d.head, Bumped: len(charts), Reports: []report.Report{}, Skipped: []report.Skip{}, Failed: []report.Skip{}}
 	for _, s := range skips {
 		batch.Skipped = append(batch.Skipped, report.Skip{Path: s.Dir, Reason: s.Reason})
 	}
