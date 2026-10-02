@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -167,6 +168,35 @@ func ParseLock(data []byte) ([]Dependency, error) {
 		return nil, fmt.Errorf("parse lock file: %w", err)
 	}
 	return lock.Dependencies, nil
+}
+
+func MissingDependencies(dir string, meta Metadata) []string {
+	entries, _ := os.ReadDir(filepath.Join(dir, "charts"))
+	var missing []string
+	for _, d := range meta.Dependencies {
+		if !slices.ContainsFunc(entries, func(e fs.DirEntry) bool { return vendors(dir, e, d.Name) }) {
+			missing = append(missing, d.Name)
+		}
+	}
+	return missing
+}
+
+func vendors(dir string, e fs.DirEntry, name string) bool {
+	if e.IsDir() {
+		data, err := os.ReadFile(filepath.Join(dir, "charts", e.Name(), "Chart.yaml"))
+		if err != nil {
+			return false
+		}
+		m, err := ParseMetadata(data, nil)
+		return err == nil && m.Name == name
+	}
+	version, ok := strings.CutPrefix(strings.TrimSuffix(e.Name(), ".tgz"), name+"-")
+	return ok && strings.HasSuffix(e.Name(), ".tgz") && version != "" && version[0] >= '0' && version[0] <= '9'
+}
+
+func (r Runner) BuildDependencies(ctx context.Context, dir string) error {
+	_, err := r.run(ctx, Chart{}, "dependency", "build", dir)
+	return err
 }
 
 func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) error {

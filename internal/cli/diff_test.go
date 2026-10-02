@@ -410,3 +410,75 @@ func TestDiffListsDependencyChangesOfABump(t *testing.T) {
 		t.Errorf("dependency change missing:\n%s", out)
 	}
 }
+
+const depsHelmScript = `#!/bin/sh
+case "$1 $2" in
+  "dependency build")
+    echo "$3" >> "$FAKE_LOG"
+    if [ -n "$FAKE_DEP_FAIL" ]; then echo "Error: no cached repository for helm-manager-1" >&2; exit 1; fi
+    mkdir -p "$3/charts/tempo" && printf 'name: tempo\nversion: 1.24.4\n' > "$3/charts/tempo/Chart.yaml"
+    exit 0 ;;
+esac
+if [ "$1" = template ] && [ ! -d "$3/charts/tempo" ]; then
+  echo "Error: found in Chart.yaml, but missing in charts/ directory: tempo" >&2
+  exit 1
+fi
+`
+
+func umbrellaHistory(t *testing.T) (*gitFixture, string, string, string) {
+	t.Helper()
+	g := newGitFixture(t)
+	bin := filepath.Join(t.TempDir(), "helm")
+	if err := os.WriteFile(bin, []byte(depsHelmScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HELM_BIN", bin)
+	logFile := filepath.Join(t.TempDir(), "helm.log")
+	t.Setenv("FAKE_LOG", logFile)
+
+	chart := func(version, tempo string) string {
+		return "apiVersion: v2\nname: umb\nversion: " + version + "\ndependencies:\n  - name: tempo\n    version: " + tempo + "\n    repository: https://grafana.github.io/helm-charts\n"
+	}
+	g.write(map[string]string{
+		"charts/umb/Chart.yaml":       chart("1.0.0", "1.10.0"),
+		"charts/umb/values.yaml":      "tempo:\n  enabled: true\n",
+		"charts/umb/values_prod.yaml": "tempo:\n  enabled: true\n",
+	})
+	base := g.commit("base")
+	g.write(map[string]string{"charts/umb/Chart.yaml": chart("1.1.0", "1.24.4")})
+	head := g.commit("bump tempo")
+	return g, base, head, logFile
+}
+
+func TestDiffBuildsMissingDependenciesBeforeRendering(t *testing.T) {
+	g, base, head, logFile := umbrellaHistory(t)
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--fail-on", "render")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Render: both versions render with your values") {
+		t.Errorf("render not checked after building dependencies:\n%s", out)
+	}
+	data, _ := os.ReadFile(logFile)
+	if builds := strings.Count(string(data), "\n"); builds != 2 || strings.Contains(string(data), g.dir) {
+		t.Errorf("dependency builds:\n%s\nwant one per extracted revision and none in the repository", data)
+	}
+	if status := g.git("status", "--porcelain", "--ignored"); status != "" {
+		t.Errorf("repository modified:\n%s", status)
+	}
+}
+
+func TestDiffSkipsRenderWhenDependenciesCannotBeFetched(t *testing.T) {
+	g, base, head, _ := umbrellaHistory(t)
+	t.Setenv("FAKE_DEP_FAIL", "1")
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--fail-on", "render")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "render        not checked, the dependencies of umb 1.") || !strings.Contains(out, "no cached repository") {
+		t.Errorf("skipped render not reported:\n%s", out)
+	}
+	if strings.Contains(out, "neither version renders") {
+		t.Errorf("a dependency failure blamed the values:\n%s", out)
+	}
+}

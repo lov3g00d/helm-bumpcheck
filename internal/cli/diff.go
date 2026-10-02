@@ -118,11 +118,12 @@ func diffChart(ctx context.Context, deps *deps, repo gitdiff.Repo, c gitdiff.Cha
 	}
 
 	cs, err := prepareChart(ctx, deps, spec{
-		name: c.Name,
-		from: c.FromVersion,
-		to:   c.ToVersion,
-		old:  helm.Chart{Ref: oldDir},
-		new:  helm.Chart{Ref: newDir},
+		name:      c.Name,
+		from:      c.FromVersion,
+		to:        c.ToVersion,
+		old:       helm.Chart{Ref: oldDir},
+		new:       helm.Chart{Ref: newDir},
+		buildDeps: true,
 	}, o)
 	if err != nil {
 		return nil, err

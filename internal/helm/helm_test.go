@@ -274,6 +274,47 @@ func TestParseMetadataCoercesLikeHelm(t *testing.T) {
 	}
 }
 
+func TestMissingDependencies(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"charts/minio/Chart.yaml":       "name: minio\nversion: 1.0.0\n",
+		"charts/renamed/Chart.yaml":     "name: redis\nversion: 1.0.0\n",
+		"charts/postgresql-12.1.0.tgz":  "",
+		"charts/memcached-cluster.tgz":  "",
+		"charts/notachart/values.yaml":  "",
+		"charts/valkey-cluster-1.0.tgz": "",
+	} {
+		full := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	meta := Metadata{Dependencies: []Dependency{
+		{Name: "minio"}, {Name: "redis", Alias: "cache"}, {Name: "postgresql"},
+		{Name: "memcached"}, {Name: "notachart"}, {Name: "valkey"}, {Name: "tempo"},
+	}}
+	if got, want := MissingDependencies(dir, meta), []string{"memcached", "notachart", "valkey", "tempo"}; !slices.Equal(got, want) {
+		t.Errorf("MissingDependencies = %q, want %q", got, want)
+	}
+	if got := MissingDependencies(t.TempDir(), Metadata{}); got != nil {
+		t.Errorf("MissingDependencies without dependencies = %q", got)
+	}
+}
+
+func TestBuildDependencies(t *testing.T) {
+	work := t.TempDir()
+	r := Runner{Bin: fakeHelm(t, `echo "$@" > `+filepath.Join(work, "args"))}
+	if err := r.BuildDependencies(context.Background(), "/charts/umb"); err != nil {
+		t.Fatal(err)
+	}
+	if args, _ := os.ReadFile(filepath.Join(work, "args")); string(args) != "dependency build /charts/umb\n" {
+		t.Errorf("args = %q", args)
+	}
+}
+
 func TestLoadDirRejectsBadRequirements(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v1\nname: app\nversion: 1.0.0\n"), 0o644); err != nil {

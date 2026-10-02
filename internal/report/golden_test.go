@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,6 +71,9 @@ func TestFailing(t *testing.T) {
 	if (Report{}).Failing([]string{"render"}) != nil {
 		t.Error("nil render must not fail")
 	}
+	if (Report{Render: SkippedRender("offline")}).Failing([]string{"render"}) != nil {
+		t.Error("skipped render must not fail")
+	}
 }
 
 func TestRenderOutcomes(t *testing.T) {
@@ -107,6 +111,18 @@ func TestRenderOutcomes(t *testing.T) {
 				t.Errorf("footer = %q, want %q", v.Footer, tt.footer)
 			}
 		})
+	}
+}
+
+func TestSkippedRenderIsACheck(t *testing.T) {
+	v := build(Report{Chart: "c", From: "1", To: "2", Render: SkippedRender("the dependencies could not be fetched")})
+	if len(v.Breaking) != 0 || len(v.Check) != 1 || v.Check[0].Detail != "not checked, the dependencies could not be fetched" {
+		t.Errorf("breaking = %+v, check = %+v", v.Breaking, v.Check)
+	}
+	for _, line := range v.Footer {
+		if strings.HasPrefix(line, "Render:") {
+			t.Errorf("footer claims a render result: %q", line)
+		}
 	}
 }
 

@@ -95,8 +95,12 @@ func build(res Report) view {
 			v.Check = append(v.Check, row{Kind: "notes", Path: k, Detail: u.kind + " key named in release notes", Evidence: ev, More: more})
 		}
 	}
-	if res.Render != nil && !res.Render.OldOK && !res.Render.NewOK {
-		v.Check = append(v.Check, row{Kind: "render", Detail: "neither version renders with your values, so this check is inconclusive", Lines: strings.Split(res.Render.NewError, "\n")})
+	switch r := res.Render; {
+	case r == nil:
+	case r.Skipped != "":
+		v.Check = append(v.Check, row{Kind: "render", Detail: "not checked, " + r.Skipped})
+	case !r.OldOK && !r.NewOK:
+		v.Check = append(v.Check, row{Kind: "render", Detail: "neither version renders with your values, so this check is inconclusive", Lines: strings.Split(r.NewError, "\n")})
 	}
 
 	v.Verdict = verdict(len(v.Breaking), len(v.Check), len(v.Unverified))

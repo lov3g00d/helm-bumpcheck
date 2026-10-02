@@ -31,6 +31,7 @@ type Render struct {
 	NewOK    bool   `json:"newOk"`
 	OldError string `json:"oldError,omitempty"`
 	NewError string `json:"newError,omitempty"`
+	Skipped  string `json:"skipped,omitempty"`
 }
 
 func NewRender(oldErr, newErr error) *Render {
@@ -44,8 +45,12 @@ func NewRender(oldErr, newErr error) *Render {
 	return r
 }
 
+func SkippedRender(reason string) *Render {
+	return &Render{Skipped: reason}
+}
+
 func (r *Render) Breaking() bool {
-	return r != nil && r.OldOK && !r.NewOK
+	return r != nil && r.Skipped == "" && r.OldOK && !r.NewOK
 }
 
 type Notes struct {

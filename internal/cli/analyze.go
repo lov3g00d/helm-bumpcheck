@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -55,14 +56,16 @@ type spec struct {
 	new        helm.Chart
 	appRepo    string
 	chartNotes string
+	buildDeps  bool
 }
 
 type chartStage struct {
-	spec    spec
-	old     helm.Loaded
-	new     helm.Loaded
-	sources []*fetchedNotes
-	memo    *match.Memo
+	spec       spec
+	old        helm.Loaded
+	new        helm.Loaded
+	renderSkip [2]string
+	sources    []*fetchedNotes
+	memo       *match.Memo
 }
 
 func prepareChart(ctx context.Context, d *deps, s spec, o options) (*chartStage, error) {
@@ -73,16 +76,22 @@ func prepareChart(ctx context.Context, d *deps, s spec, o options) (*chartStage,
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		var err error
-		cs.old, err = d.helm.Load(gctx, s.old, filepath.Join(work, "old"))
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		cs.new, err = d.helm.Load(gctx, s.new, filepath.Join(work, "new"))
-		return err
-	})
+	for i, side := range []struct {
+		chart  helm.Chart
+		loaded *helm.Loaded
+		dest   string
+	}{{s.old, &cs.old, "old"}, {s.new, &cs.new, "new"}} {
+		g.Go(func() error {
+			var err error
+			if *side.loaded, err = d.helm.Load(gctx, side.chart, filepath.Join(work, side.dest)); err != nil {
+				return err
+			}
+			if s.buildDeps && o.render {
+				cs.renderSkip[i] = buildDependencies(gctx, d.helm, *side.loaded)
+			}
+			return gctx.Err()
+		})
+	}
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
@@ -99,6 +108,17 @@ func prepareChart(ctx context.Context, d *deps, s spec, o options) (*chartStage,
 	return cs, nil
 }
 
+func buildDependencies(ctx context.Context, h helm.Runner, c helm.Loaded) string {
+	missing := helm.MissingDependencies(c.Dir, c.Meta)
+	if len(missing) == 0 {
+		return ""
+	}
+	if err := h.BuildDependencies(ctx, c.Dir); err != nil {
+		return fmt.Sprintf("the dependencies of %s %s (%s) could not be fetched: %v", c.Meta.Name, c.Meta.Version, strings.Join(missing, ", "), err)
+	}
+	return ""
+}
+
 func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, oldValueFiles []string, o options) (report.Report, error) {
 	user, err := values.LoadFiles(valueFiles)
 	if err != nil {
@@ -112,7 +132,9 @@ func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, old
 		Report:       values.Compare(cs.old.Defaults, cs.new.Defaults, user, values.Dependencies{Old: cs.old.Meta.DependencyNames(), New: subcharts}),
 	}
 
-	if o.render {
+	if skip := cmp.Or(cs.renderSkip[0], cs.renderSkip[1]); o.render && skip != "" {
+		res.Render = report.SkippedRender(skip)
+	} else if o.render {
 		if oldValueFiles == nil {
 			oldValueFiles = valueFiles
 		}
