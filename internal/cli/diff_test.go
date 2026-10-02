@@ -231,6 +231,30 @@ func TestDiffFailedChartExitsWithError(t *testing.T) {
 	}
 }
 
+func TestDiffReadsDuplicateKeysLikeHelm(t *testing.T) {
+	g := newGitFixture(t)
+	g.write(map[string]string{
+		"charts/app/Chart.yaml":       "apiVersion: v2\nname: app\nversion: 1.0.0\n",
+		"charts/app/values.yaml":      "a: 1\n",
+		"charts/app/values-prod.yaml": "a: 2\na: 3\n",
+	})
+	base := g.commit("base")
+	g.write(map[string]string{"charts/app/Chart.yaml": "apiVersion: v2\nname: app\nversion: 1.1.0\n"})
+	head := g.commit("bump")
+
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "-o", "json")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	var b report.Batch
+	if err := json.Unmarshal([]byte(out), &b); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if len(b.Reports) != 1 || len(b.Failed) != 0 {
+		t.Errorf("reports = %d, failed = %+v, want one report", len(b.Reports), b.Failed)
+	}
+}
+
 func TestDiffRendersOldChartWithBaseValues(t *testing.T) {
 	g, base, head := bumpHistory(t)
 	logFile := filepath.Join(t.TempDir(), "helm.log")

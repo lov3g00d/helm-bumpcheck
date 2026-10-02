@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"go.yaml.in/yaml/v3"
+	"sigs.k8s.io/yaml"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
@@ -35,19 +35,19 @@ type Chart struct {
 }
 
 type Metadata struct {
-	Name         string       `yaml:"name"`
-	Version      string       `yaml:"version"`
-	AppVersion   string       `yaml:"appVersion"`
-	Dependencies []Dependency `yaml:"dependencies"`
-	Home         string       `yaml:"home"`
-	Sources      []string     `yaml:"sources"`
+	Name         string       `json:"name"`
+	Version      string       `json:"version"`
+	AppVersion   string       `json:"appVersion"`
+	Dependencies []Dependency `json:"dependencies"`
+	Home         string       `json:"home"`
+	Sources      []string     `json:"sources"`
 }
 
 type Dependency struct {
-	Name       string `yaml:"name"`
-	Version    string `yaml:"version"`
-	Repository string `yaml:"repository"`
-	Alias      string `yaml:"alias"`
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+	Repository string `json:"repository"`
+	Alias      string `json:"alias"`
 }
 
 func (m Metadata) DependencyNames() []string {
@@ -148,7 +148,7 @@ func ParseMetadata(chartYAML, requirementsYAML []byte) (Metadata, error) {
 		return m, nil
 	}
 	var v1 struct {
-		Dependencies []Dependency `yaml:"dependencies"`
+		Dependencies []Dependency `json:"dependencies"`
 	}
 	if err := yaml.Unmarshal(requirementsYAML, &v1); err != nil {
 		return Metadata{}, fmt.Errorf("parse requirements.yaml: %w", err)

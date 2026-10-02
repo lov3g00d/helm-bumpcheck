@@ -150,7 +150,7 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(got.Dir, "tempo") || got.Meta.AppVersion != "2.9.0" || !reflect.DeepEqual(got.Defaults, map[string]any{"replicas": 1}) {
+	if !strings.HasSuffix(got.Dir, "tempo") || got.Meta.AppVersion != "2.9.0" || !reflect.DeepEqual(got.Defaults, map[string]any{"replicas": 1.0}) {
 		t.Errorf("Load = %+v", got)
 	}
 }
@@ -261,6 +261,16 @@ func TestLoadDirDependencies(t *testing.T) {
 				t.Errorf("DependencyNames = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseMetadataCoercesLikeHelm(t *testing.T) {
+	m, err := ParseMetadata([]byte("name: app\nversion: 1.0.0\nappVersion: 1.10\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.AppVersion != "1.1" {
+		t.Errorf("AppVersion = %q, want %q as helm reads an unquoted 1.10", m.AppVersion, "1.1")
 	}
 }
 

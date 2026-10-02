@@ -7,7 +7,12 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
-require golang.org/x/mod v0.41.0
+require (
+	golang.org/x/mod v0.41.0
+	sigs.k8s.io/yaml v1.6.0
+)
+
+require go.yaml.in/yaml/v2 v2.4.2 // indirect
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

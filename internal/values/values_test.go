@@ -104,11 +104,18 @@ typoKey: 1
 		Removed:        []string{"processor.localBlocks.flushToStorage", "structuredConfig.overrides.max_traces"},
 		Standard:       []string{`podAnnotations["prometheus.io/scrape"]`},
 		Undeclared:     []string{"typoKey"},
-		DefaultChanged: []Change{{Path: "replicas", Old: 1, New: 2}},
+		DefaultChanged: []Change{{Path: "replicas", Old: 1.0, New: 2.0}},
 		Added:          []string{"newFeature"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Compare =\n%#v\nwant\n%#v", got, want)
+	}
+}
+
+func TestCompareIgnoresSpellingsHelmReadsAlike(t *testing.T) {
+	got := Compare(mustParse(t, "cpu: 1\nflag: yes\n"), mustParse(t, "cpu: 1.0\nflag: true\n"), map[string]any{}, nil)
+	if !reflect.DeepEqual(got, Report{}) {
+		t.Errorf("Compare = %#v, want an empty report", got)
 	}
 }
 

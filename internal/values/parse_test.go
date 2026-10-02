@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestParseStringifiesKeys(t *testing.T) {
+func TestParseMatchesHelm(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -32,12 +32,32 @@ func TestParseStringifiesKeys(t *testing.T) {
 		{
 			name: "mixed integer and string keys",
 			in:   "ports:\n  80: http\n  metrics: 9090\n",
-			want: map[string]any{"ports": map[string]any{"80": "http", "metrics": 9090}},
+			want: map[string]any{"ports": map[string]any{"80": "http", "metrics": 9090.0}},
 		},
 		{
 			name: "map inside a list",
 			in:   "rules:\n  - 443: https\n",
 			want: map[string]any{"rules": []any{map[string]any{"443": "https"}}},
+		},
+		{
+			name: "duplicate key, last wins",
+			in:   "a: 2\na: 3\n",
+			want: map[string]any{"a": 3.0},
+		},
+		{
+			name: "YAML 1.1 booleans as values and keys",
+			in:   "a: yes\nb: on\non: x\n",
+			want: map[string]any{"a": true, "b": true, "true": "x"},
+		},
+		{
+			name: "unquoted date stays a string",
+			in:   "d: 2001-12-14\n",
+			want: map[string]any{"d": "2001-12-14"},
+		},
+		{
+			name: "numbers are float64 like encoding/json",
+			in:   "a: 1\nb: 1.0\nc: 0x10\nd: 1e3\n",
+			want: map[string]any{"a": 1.0, "b": 1.0, "c": 16.0, "d": 1000.0},
 		},
 		{
 			name: "empty document",
@@ -65,7 +85,6 @@ func TestParseRejects(t *testing.T) {
 	}{
 		{"sequence at the top level", "- a\n"},
 		{"null key", "m:\n  ~: a\n"},
-		{"keys equal once stringified", "m:\n  1.0: a\n  1: b\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

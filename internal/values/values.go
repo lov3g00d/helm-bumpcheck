@@ -2,7 +2,6 @@ package values
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -10,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"sigs.k8s.io/yaml"
 )
 
 type Leaf struct {
@@ -90,78 +89,14 @@ func root(path string) string {
 }
 
 func Parse(data []byte) (map[string]any, error) {
-	var raw map[any]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	var m map[string]any
+	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
-	return stringMap(raw)
-}
-
-func stringMap[K comparable](raw map[K]any) (map[string]any, error) {
-	m := make(map[string]any, len(raw))
-	for k, v := range raw {
-		key, err := keyString(k)
-		if err != nil {
-			return nil, err
-		}
-		if _, dup := m[key]; dup {
-			return nil, fmt.Errorf("duplicate map key %q", key)
-		}
-		if m[key], err = normalize(v); err != nil {
-			return nil, err
-		}
+	if m == nil {
+		m = map[string]any{}
 	}
 	return m, nil
-}
-
-func normalize(v any) (any, error) {
-	switch v := v.(type) {
-	case map[any]any:
-		return stringMap(v)
-	case map[string]any:
-		return stringMap(v)
-	case []any:
-		out := make([]any, len(v))
-		for i, x := range v {
-			var err error
-			if out[i], err = normalize(x); err != nil {
-				return nil, err
-			}
-		}
-		return out, nil
-	default:
-		return v, nil
-	}
-}
-
-func keyString(k any) (string, error) {
-	switch k := k.(type) {
-	case string:
-		return k, nil
-	case int:
-		return strconv.Itoa(k), nil
-	case int64:
-		return strconv.FormatInt(k, 10), nil
-	case uint64:
-		return strconv.FormatUint(k, 10), nil
-	case float64:
-		switch s := strconv.FormatFloat(k, 'g', -1, 32); s {
-		case "+Inf":
-			return ".inf", nil
-		case "-Inf":
-			return "-.inf", nil
-		case "NaN":
-			return ".nan", nil
-		default:
-			return s, nil
-		}
-	case bool:
-		return strconv.FormatBool(k), nil
-	case nil:
-		return "", errors.New("unsupported null map key")
-	default:
-		return fmt.Sprint(k), nil
-	}
 }
 
 func LoadFiles(paths []string) (map[string]any, error) {
