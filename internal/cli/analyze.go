@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,6 +33,7 @@ func newDeps(o options) (*deps, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	h.KubeVersion = o.kubeVersion
 	work, err := os.MkdirTemp("", "bumpcheck-")
 	if err != nil {
 		return nil, nil, err
@@ -151,7 +153,7 @@ func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, old
 		if err := g.Wait(); err != nil {
 			return report.Report{}, err
 		}
-		res.Render = report.NewRender(oldErr, newErr)
+		res.Render = newRender(oldErr, newErr, o.kubeVersion)
 	}
 
 	for _, src := range cs.sources {
@@ -162,6 +164,14 @@ func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, old
 		res.Notes = append(res.Notes, n)
 	}
 	return res, nil
+}
+
+func newRender(oldErr, newErr error, kubeVersion string) *report.Render {
+	var kv *helm.KubeVersionError
+	if kubeVersion == "" && errors.As(newErr, &kv) {
+		return report.SkippedRender(fmt.Sprintf("the new %s, set --kube-version to your cluster version", kv.Message))
+	}
+	return report.NewRender(oldErr, newErr)
 }
 
 func validate(o options) error {

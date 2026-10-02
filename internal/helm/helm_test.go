@@ -86,6 +86,28 @@ func TestTemplateFailureIsCleaned(t *testing.T) {
 	}
 }
 
+func TestTemplateKubeVersion(t *testing.T) {
+	script := `echo "$*" > "$FAKE_ARGS"; echo "Error: chart requires kubeVersion: >=1.35.0-0 which is incompatible with Kubernetes v1.34.0" >&2; exit 1`
+	t.Setenv("FAKE_ARGS", filepath.Join(t.TempDir(), "args"))
+	r := Runner{Bin: fakeHelm(t, script), KubeVersion: "1.33.2"}
+	err := r.Template(context.Background(), Chart{Ref: "app"}, []string{"v.yaml"})
+	var kv *KubeVersionError
+	if !errors.As(err, &kv) || kv.Message != "chart requires kubeVersion: >=1.35.0-0 which is incompatible with Kubernetes v1.34.0" {
+		t.Errorf("err = %#v, want a KubeVersionError", err)
+	}
+	if args, _ := os.ReadFile(os.Getenv("FAKE_ARGS")); string(args) != "template bumpcheck app --kube-version 1.33.2 -f v.yaml\n" {
+		t.Errorf("args = %q", args)
+	}
+}
+
+func TestTemplateKubeVersionWithoutErrorPrefix(t *testing.T) {
+	r := Runner{Bin: fakeHelm(t, `echo "Error: INSTALLATION FAILED: chart requires kubeVersion: >=1.99.0-0 which is incompatible with Kubernetes v1.37.0" >&2; exit 1`)}
+	var kv *KubeVersionError
+	if err := r.Template(context.Background(), Chart{Ref: "app"}, nil); !errors.As(err, &kv) || kv.Message != "chart requires kubeVersion: >=1.99.0-0 which is incompatible with Kubernetes v1.37.0" {
+		t.Errorf("err = %#v, want a KubeVersionError", err)
+	}
+}
+
 func TestCleanRenderErrorCapsLines(t *testing.T) {
 	got := cleanRenderError(strings.Repeat("line\n", 40))
 	if n := strings.Count(got, "\n") + 1; n != maxRenderLines+1 || !strings.HasSuffix(got, "...") {

@@ -28,6 +28,7 @@ type options struct {
 	maxPages       int
 	detectNotes    bool
 	userAgent      string
+	kubeVersion    string
 }
 
 var ErrFindings = errors.New("report has findings")
@@ -97,6 +98,7 @@ func NewRootCmd(version string) *cobra.Command {
 	p.Float64Var(&o.threshold, "threshold", 0.5, "minimum probability for a release-note match to be shown")
 	p.StringSliceVar(&o.failOn, "fail-on", nil, "exit with code 2 if the report has any of: "+strings.Join(report.FailKinds, ", "))
 	p.BoolVar(&o.render, "render", true, "render both chart versions with your values and report if only the new one fails")
+	p.StringVar(&o.kubeVersion, "kube-version", "", "Kubernetes version to render against, passed to helm template (default helm's built-in version)")
 
 	_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(report.Formats(), cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.RegisterFlagCompletionFunc("fail-on", cobra.FixedCompletions(report.FailKinds, cobra.ShellCompDirectiveNoFileComp))

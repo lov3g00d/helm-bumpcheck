@@ -32,6 +32,13 @@ if [ "$1" = pull ]; then
   printf "$values" > "$dest/mychart/values.yaml"
   exit 0
 fi
+if [ "$1" = template ] && [ -n "$FAKE_KUBE_FAIL" ] && grep -q "^version: $FAKE_KUBE_FAIL" "$3/Chart.yaml"; then
+  case "$*" in
+    *--kube-version*) echo "Error: chart requires kubeVersion: >=1.35.0-0 which is incompatible with Kubernetes v1.33.0" >&2 ;;
+    *) echo "Error: chart requires kubeVersion: >=1.35.0-0 which is incompatible with Kubernetes v1.34.0" >&2 ;;
+  esac
+  exit 1
+fi
 if [ "$1" = template ] && [ -n "$FAKE_RENDER_FAIL" ] && grep -q '^version: 2' "$3/Chart.yaml"; then
   echo "Error: execution error at (mychart/templates/NOTES.txt:1:1):" >&2
   echo "ERROR: legacy mode was removed, unset legacy.enabled" >&2
@@ -112,6 +119,30 @@ func TestNothingAffected(t *testing.T) {
 	}
 	if !strings.Contains(out, "Result: nothing in this upgrade affects the values you set") {
 		t.Errorf("output:\n%s", out)
+	}
+}
+
+func TestKubeVersionRequirementIsNotBlamedOnValues(t *testing.T) {
+	userValues := setup(t)
+	t.Setenv("FAKE_KUBE_FAIL", "2")
+	out, err := execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--fail-on", "render")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	want := "render        not checked, the new chart requires kubeVersion: >=1.35.0-0 which is incompatible with Kubernetes v1.34.0, set --kube-version to your cluster version"
+	if !strings.Contains(out, want) || strings.Contains(out, "rejects your values") {
+		t.Errorf("output missing %q:\n%s", want, out)
+	}
+
+	out, err = execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--fail-on", "render", "--kube-version", "1.33.0")
+	if !errors.Is(err, ErrFindings) || !strings.Contains(out, "incompatible with Kubernetes v1.33.0") {
+		t.Errorf("err = %v, want a render finding for the given cluster version:\n%s", err, out)
+	}
+
+	t.Setenv("FAKE_KUBE_FAIL", "1")
+	out, err = execute(t, "mychart", "--from", "1.0.0", "--to", "2.0.0", "-f", userValues, "--fail-on", "render")
+	if err != nil || !strings.Contains(out, "Render: the new version renders with your values, the old one did not") {
+		t.Errorf("err = %v, an old-chart kubeVersion failure must not skip the check:\n%s", err, out)
 	}
 }
 

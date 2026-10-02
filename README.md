@@ -24,7 +24,7 @@ For the keys in your values files, against the old and new chart:
 
 - **removed**: you set a key the new chart no longer declares, or a key under a subchart the new chart no longer depends on.
 - **type changed**: a block you set changed between map, list and scalar.
-- **render**: the new chart fails `helm template` with your values while the old one rendered.
+- **render**: the new chart fails `helm template` with your values while the old one rendered. helm checks a chart's `kubeVersion` against its built-in Kubernetes version, so pass `--kube-version` with your cluster's version; without it a `kubeVersion` failure is reported as not checked.
 - **default changed**: a default you rely on changed.
 - **meaning changed**: a key you set whose scalar default changed, or whose block gained a setting with a non-empty default, such as `image.repository` when the chart adds `image.registry: quay.io` beside it. Your value still applies, but the chart may now read it differently.
 - **declared**: a key you set that the old chart did not declare and the new one does. The old chart most likely ignored it, so your value may only now take effect.
@@ -71,7 +71,7 @@ Every chart whose `Chart.yaml` version changed in a git range, one report per `v
 helm bumpcheck diff --base origin/main --notes
 ```
 
-A chart whose dependencies changed in `Chart.yaml`, `requirements.yaml` or their lock files without a version bump is listed as skipped, with each dependency change named; dependency upgrades are not analyzed yet. When the version did change, the dependency changes are listed under the report.
+A chart whose dependencies changed in `Chart.yaml`, `requirements.yaml` or their lock files without a version bump is listed as skipped, with each dependency change named; dependency upgrades are not analyzed yet. When the version did change, the dependency changes are listed under the report. Dependencies that are not vendored under `charts/` are fetched with `helm dependency build` into the extracted copy before rendering, never into your repository.
 
 `--notes` picks the app and chart release-note repos from each chart's `sources`. `-o json` and `-o markdown` change the output; the markdown is meant for a pull request comment. [examples/github-pr-comment.yml](examples/github-pr-comment.yml) posts it on every pull request that touches a `Chart.yaml`, `requirements.yaml` or lock file.
 

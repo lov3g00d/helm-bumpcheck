@@ -26,7 +26,16 @@ const (
 )
 
 type Runner struct {
-	Bin string
+	Bin         string
+	KubeVersion string
+}
+
+type KubeVersionError struct {
+	Message string
+}
+
+func (e *KubeVersionError) Error() string {
+	return e.Message
 }
 
 type Chart struct {
@@ -201,6 +210,9 @@ func (r Runner) BuildDependencies(ctx context.Context, dir string) error {
 
 func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) error {
 	args := c.args("template", "bumpcheck", c.Ref)
+	if r.KubeVersion != "" {
+		args = append(args, "--kube-version", r.KubeVersion)
+	}
 	for _, f := range valueFiles {
 		args = append(args, "-f", f)
 	}
@@ -212,8 +224,13 @@ func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) erro
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if msg := cleanRenderError(stderr.String()); msg != "" {
-			return errors.New(c.redact(msg))
+		msg := c.redact(cleanRenderError(stderr.String()))
+		if _, req, ok := strings.Cut(msg, "chart requires kubeVersion:"); ok {
+			req, _, _ = strings.Cut(req, "\n")
+			return &KubeVersionError{Message: "chart requires kubeVersion:" + req}
+		}
+		if msg != "" {
+			return errors.New(msg)
 		}
 		return err
 	}
