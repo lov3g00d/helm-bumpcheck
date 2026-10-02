@@ -18,6 +18,7 @@
       ]
     }
   ],
+  "meaningChanged": null,
   "freeform": [
     "schedules.daily.schedule"
   ],

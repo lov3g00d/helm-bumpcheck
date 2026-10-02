@@ -168,3 +168,38 @@ func TestFooterPluralizesCounts(t *testing.T) {
 		t.Errorf("footer = %q\nwant     %q", got, want)
 	}
 }
+
+func TestBuildShowsMeaningChangedInCheck(t *testing.T) {
+	note := "[prometheus-blackbox-exporter] Refactor image configuration by @jkroepke"
+	r := Report{
+		Chart: "prometheus-blackbox-exporter", From: "7.12.0", To: "8.0.0",
+		Report: values.Report{
+			MeaningChanged: []values.MeaningChange{
+				{Path: "image.repository", Old: "prom/blackbox-exporter", New: "prometheus/blackbox-exporter", Siblings: []string{"image.registry"}},
+				{Path: "probe.path", Siblings: []string{"probe.a", "probe.b", "probe.c", "probe.d"}},
+			},
+			DefaultChanged: []values.Change{{Path: "replicas", Old: 1, New: 2}},
+		},
+		Notes: []*Notes{{Source: "chart", Repo: "prometheus-community/helm-charts", Threshold: 0.5, Matches: []match.Match{
+			{Key: "image.repository", Probability: 0.77, Release: "prometheus-blackbox-exporter-8.0.0", Text: note},
+		}}},
+	}
+	v := build(r)
+	if len(v.Breaking) != 0 || len(v.Check) != 3 || v.Verdict != "Result: 0 breaking, 3 to check, 0 unverified" {
+		t.Fatalf("breaking %+v check %+v verdict %q", v.Breaking, v.Check, v.Verdict)
+	}
+	want := []row{
+		{Kind: "meaning", Path: "image.repository", Detail: `you set it, default changed "prom/blackbox-exporter" -> "prometheus/blackbox-exporter", new beside it: image.registry`},
+		{Kind: "meaning", Path: "probe.path", Detail: "you set it, new beside it: probe.a, probe.b, probe.c and 1 more"},
+		{Kind: "default", Path: "replicas", Detail: "1 -> 2"},
+	}
+	for i, w := range want {
+		got := v.Check[i]
+		if got.Kind != w.Kind || got.Path != w.Path || got.Detail != w.Detail {
+			t.Errorf("check[%d] = %s %s %q, want %s %s %q", i, got.Kind, got.Path, got.Detail, w.Kind, w.Path, w.Detail)
+		}
+	}
+	if ev := v.Check[0].Evidence; len(ev) != 1 || ev[0].Probability != 0.77 {
+		t.Errorf("evidence = %+v, want the release note attached", ev)
+	}
+}

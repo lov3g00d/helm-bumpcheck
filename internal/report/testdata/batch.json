@@ -25,6 +25,7 @@
           ]
         }
       ],
+      "meaningChanged": null,
       "freeform": [
         "schedules.daily.schedule"
       ],
@@ -106,6 +107,7 @@
       "values": "values_a|b.yaml",
       "removed": null,
       "typeChanged": null,
+      "meaningChanged": null,
       "freeform": null,
       "standard": null,
       "undeclared": null,

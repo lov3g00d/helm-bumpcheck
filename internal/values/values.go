@@ -33,22 +33,33 @@ type TypeChange struct {
 	Keys []string `json:"keys"`
 }
 
+type MeaningChange struct {
+	Path     string   `json:"path"`
+	Old      any      `json:"old,omitempty"`
+	New      any      `json:"new,omitempty"`
+	Siblings []string `json:"siblings,omitempty"`
+}
+
 type Report struct {
-	Removed        []string     `json:"removed"`
-	TypeChanged    []TypeChange `json:"typeChanged"`
-	Freeform       []string     `json:"freeform"`
-	Standard       []string     `json:"standard"`
-	Undeclared     []string     `json:"undeclared"`
-	DefaultChanged []Change     `json:"defaultChanged"`
-	Added          []string     `json:"added"`
+	Removed        []string        `json:"removed"`
+	TypeChanged    []TypeChange    `json:"typeChanged"`
+	MeaningChanged []MeaningChange `json:"meaningChanged"`
+	Freeform       []string        `json:"freeform"`
+	Standard       []string        `json:"standard"`
+	Undeclared     []string        `json:"undeclared"`
+	DefaultChanged []Change        `json:"defaultChanged"`
+	Added          []string        `json:"added"`
 }
 
 func (r Report) NoteKeys() []string {
-	var typed []string
+	var typed, meaning []string
 	for _, tc := range r.TypeChanged {
 		typed = append(typed, tc.Keys...)
 	}
-	return slices.Concat(r.Removed, typed, r.Freeform, r.Undeclared)
+	for _, mc := range r.MeaningChanged {
+		meaning = append(meaning, mc.Path)
+	}
+	return slices.Concat(r.Removed, typed, meaning, r.Freeform, r.Undeclared)
 }
 
 func Parse(data []byte) (map[string]any, error) {
@@ -301,10 +312,17 @@ func Compare(oldDefaults, newDefaults, user map[string]any, subcharts []string) 
 			typed[path].Keys = append(typed[path].Keys, p)
 			continue
 		}
-		if _, inNew := newL[p]; inNew {
+		o, inOld := oldL[p]
+		if n, inNew := newL[p]; inNew {
+			if !inOld {
+				continue
+			}
+			if mc, ok := meaningChange(o.Value, n.Value, oldDefaults, newDefaults, user, leaf.Segments); ok {
+				mc.Path = p
+				r.MeaningChanged = append(r.MeaningChanged, mc)
+			}
 			continue
 		}
-		_, inOld := oldL[p]
 		subchart := leaf.Segments[0] == "global" || slices.Contains(subcharts, leaf.Segments[0])
 		r.classify(oldDefaults, newDefaults, leaf, p, inOld, subchart)
 	}
@@ -333,11 +351,51 @@ func Compare(oldDefaults, newDefaults, user map[string]any, subcharts []string) 
 		r.TypeChanged = append(r.TypeChanged, *tc)
 	}
 	slices.SortFunc(r.TypeChanged, func(a, b TypeChange) int { return cmp.Compare(a.Path, b.Path) })
+	slices.SortFunc(r.MeaningChanged, func(a, b MeaningChange) int { return cmp.Compare(a.Path, b.Path) })
 	slices.SortFunc(r.DefaultChanged, func(a, b Change) int { return cmp.Compare(a.Path, b.Path) })
 	for _, list := range [][]string{r.Removed, r.Freeform, r.Standard, r.Undeclared, r.Added} {
 		slices.Sort(list)
 	}
 	return r
+}
+
+func meaningChange(oldValue, newValue any, oldDefaults, newDefaults, user map[string]any, segments []string) (MeaningChange, bool) {
+	var mc MeaningChange
+	if kind(oldValue) == "scalar" && kind(newValue) == "scalar" && !reflect.DeepEqual(oldValue, newValue) {
+		mc.Old, mc.New = oldValue, newValue
+	}
+	if len(segments) > 1 {
+		parent := segments[:len(segments)-1]
+		o, _ := lookup(oldDefaults, parent)
+		n, _ := lookup(newDefaults, parent)
+		oldParent, _ := o.(map[string]any)
+		newParent, _ := n.(map[string]any)
+		for k, v := range newParent {
+			sibling := append(slices.Clone(parent), k)
+			if _, existed := oldParent[k]; existed || !hasValue(v) {
+				continue
+			}
+			if _, set := lookup(user, sibling); set {
+				continue
+			}
+			mc.Siblings = append(mc.Siblings, Path(sibling))
+		}
+		slices.Sort(mc.Siblings)
+	}
+	return mc, mc.Old != nil || len(mc.Siblings) > 0
+}
+
+func hasValue(v any) bool {
+	switch v := v.(type) {
+	case nil:
+		return false
+	case map[string]any:
+		return len(v) > 0
+	case []any:
+		return len(v) > 0
+	default:
+		return !reflect.ValueOf(v).IsZero()
+	}
 }
 
 func overridden(user map[string]any, segments []string) bool {

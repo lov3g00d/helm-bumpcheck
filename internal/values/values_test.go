@@ -456,14 +456,102 @@ func TestNoteKeys(t *testing.T) {
 	r := Report{
 		Removed:        []string{"legacy.enabled"},
 		TypeChanged:    []TypeChange{{Path: "ports", Keys: []string{"ports.http", "ports.https"}}},
+		MeaningChanged: []MeaningChange{{Path: "image.repository", Siblings: []string{"image.registry"}}},
 		Freeform:       []string{"extraConfig.team"},
 		Standard:       []string{"resources.limits.cpu"},
 		Undeclared:     []string{"typo"},
 		DefaultChanged: []Change{{Path: "port"}},
 		Added:          []string{"newThing"},
 	}
-	want := []string{"legacy.enabled", "ports.http", "ports.https", "extraConfig.team", "typo"}
+	want := []string{"legacy.enabled", "ports.http", "ports.https", "image.repository", "extraConfig.team", "typo"}
 	if got := r.NoteKeys(); !reflect.DeepEqual(got, want) {
 		t.Errorf("NoteKeys = %v, want %v", got, want)
+	}
+}
+
+func TestCompareMeaningChanged(t *testing.T) {
+	tests := []struct {
+		name           string
+		old, new, user string
+		want           []MeaningChange
+	}{
+		{
+			name: "scalar default changed under a value you set",
+			old:  "image:\n  repository: prom/blackbox-exporter\n",
+			new:  "image:\n  repository: prometheus/blackbox-exporter\n",
+			user: "image:\n  repository: quay.io/prometheus/blackbox-exporter\n",
+			want: []MeaningChange{{Path: "image.repository", Old: "prom/blackbox-exporter", New: "prometheus/blackbox-exporter"}},
+		},
+		{
+			name: "default changed and a sibling with a default appeared",
+			old:  "image:\n  repository: prom/blackbox-exporter\n",
+			new:  "image:\n  registry: quay.io\n  repository: prometheus/blackbox-exporter\n  digest: \"\"\n",
+			user: "image:\n  repository: quay.io/prometheus/blackbox-exporter\n",
+			want: []MeaningChange{{Path: "image.repository", Old: "prom/blackbox-exporter", New: "prometheus/blackbox-exporter", Siblings: []string{"image.registry"}}},
+		},
+		{
+			name: "only a sibling appeared",
+			old:  "image:\n  repository: grafana/grafana\n",
+			new:  "image:\n  repository: grafana/grafana\n  registry: docker.io\n  pullPolicy: IfNotPresent\n",
+			user: "image:\n  repository: my/grafana\n",
+			want: []MeaningChange{{Path: "image.repository", Siblings: []string{"image.pullPolicy", "image.registry"}}},
+		},
+		{
+			name: "true and non-zero numbers are defaults",
+			old:  "probe:\n  path: /health\n",
+			new:  "probe:\n  path: /health\n  enabled: true\n  port: 8080\n",
+			user: "probe:\n  path: /ready\n",
+			want: []MeaningChange{{Path: "probe.path", Siblings: []string{"probe.enabled", "probe.port"}}},
+		},
+		{
+			name: "siblings that are empty to Helm are not defaults",
+			old:  "image:\n  repository: grafana/grafana\n",
+			new:  "image:\n  repository: grafana/grafana\n  digest: \"\"\n  extra: {}\n  args: []\n  sha: ~\n  verify: false\n  retries: 0\n",
+			user: "image:\n  repository: my/grafana\n",
+		},
+		{
+			name: "a sibling you set is not news",
+			old:  "image:\n  repository: grafana/grafana\n",
+			new:  "image:\n  repository: grafana/grafana\n  registry: docker.io\n",
+			user: "image:\n  repository: my/grafana\n  registry: quay.io\n",
+		},
+		{
+			name: "new top-level keys are not siblings",
+			old:  "replicas: 1\n",
+			new:  "replicas: 1\nregistry: docker.io\n",
+			user: "replicas: 3\n",
+		},
+		{
+			name: "list defaults are replaced whole",
+			old:  "hosts:\n  - a\n",
+			new:  "hosts:\n  - b\n",
+			user: "hosts:\n  - c\n",
+		},
+		{
+			name: "default unchanged",
+			old:  "image:\n  tag: \"\"\n",
+			new:  "image:\n  tag: \"\"\n",
+			user: "image:\n  tag: 1.2.3\n",
+		},
+		{
+			name: "key declared only in the new chart",
+			old:  "image:\n  repository: a\n",
+			new:  "image:\n  repository: a\n  tag: v2\n",
+			user: "image:\n  tag: v3\n",
+		},
+		{
+			name: "type change wins",
+			old:  "ports:\n  http: 80\n",
+			new:  "ports:\n  http:\n    port: 80\n  grpc: 9000\n",
+			user: "ports:\n  http: 8080\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user), nil)
+			if !reflect.DeepEqual(got.MeaningChanged, tt.want) {
+				t.Errorf("MeaningChanged = %#v, want %#v", got.MeaningChanged, tt.want)
+			}
+		})
 	}
 }

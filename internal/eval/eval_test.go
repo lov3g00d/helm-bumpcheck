@@ -38,6 +38,7 @@ mkdir -p "$dest/app"
 case "$version" in
   2.9.0) values='app:\n  processor:\n    local_blocks:\n      flush_to_storage: false\n  server:\n    http_listen_port: 3100\n  storage:\n    trace:\n      backend: local\n' ;;
   3.0.0) values='app:\n  server:\n    http_listen_port: 3100\n  storage:\n    trace:\n      backend: local\n' ;;
+  3.1.0) values='app:\n  server:\n    http_listen_port: 3200\n  storage:\n    trace:\n      backend: local\n' ;;
   *) echo "Error: chart version not found" >&2; exit 1 ;;
 esac
 printf "name: app\nversion: $version\n" > "$dest/app/Chart.yaml"
@@ -408,6 +409,36 @@ func TestSummarizeAndWrite(t *testing.T) {
 	}
 	if err := json.Unmarshal(js.Bytes(), &decoded); err != nil || decoded.Summary.Pick == nil || decoded.Cases[0].Jev.Stats.Model != "jev-1.13.0" {
 		t.Errorf("json report: %v %+v", err, decoded.Summary)
+	}
+}
+
+func TestRunScoresMeaningChangedInCode(t *testing.T) {
+	c := testCases(t)[0]
+	c.To = "3.1.0"
+	c.Affected = append(c.Affected, Label{Key: keyFine, Decision: DecisionMeaningChanged})
+	r := Runner{Helm: fakeHelm(t), GitHub: fakeGitHub(t), Jev: fakeJev{}, Threshold: 0.5}
+	results, err := r.Run(context.Background(), []Case{c})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := results[0]
+	if got.Error != "" {
+		t.Fatal(got.Error)
+	}
+	if !reflect.DeepEqual(got.Asked, []string{keyGone, keyFine}) || !reflect.DeepEqual(got.MeaningChanged, []string{keyFine}) || got.Code != (Score{TP: 1}) {
+		t.Errorf("asked %v meaning changed %v code %+v", got.Asked, got.MeaningChanged, got.Code)
+	}
+	if got.Jev.Score != (Score{TP: 2}) || got.Jev.Pairs != (PairScore{Score: Score{TP: 1, FP: 1}}) {
+		t.Errorf("jev = %+v pairs %+v, want the trap pair counted as fp", got.Jev.Score, got.Jev.Pairs)
+	}
+
+	s := Summarize(results, 0.5)
+	var text bytes.Buffer
+	if err := WriteText(&text, results, s); err != nil {
+		t.Fatal(err)
+	}
+	if want := "code meaning_changed: 1/0/0"; s.Code != (Score{TP: 1}) || !strings.Contains(text.String(), want) {
+		t.Errorf("code %+v, text missing %q:\n%s", s.Code, want, text.String())
 	}
 }
 

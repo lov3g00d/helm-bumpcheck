@@ -117,7 +117,8 @@ func TestDiffText(t *testing.T) {
 		"app 1.0.0 -> 2.0.0 (app 1.0 -> 2.0) [values_prod.yaml]\nResult: 1 breaking, 1 to check, 0 unverified\n",
 		"  removed       legacy.enabled  no longer in the chart",
 		"  default       replicas  1 -> 2",
-		"app 1.0.0 -> 2.0.0 (app 1.0 -> 2.0) [values_staging.yaml]\nResult: nothing in this upgrade affects the values you set\n",
+		"app 1.0.0 -> 2.0.0 (app 1.0 -> 2.0) [values_staging.yaml]\nResult: 0 breaking, 1 to check, 0 unverified\n",
+		"  meaning       replicas  you set it, default changed 1 -> 2",
 		"Skipped\n  charts/new: new chart, nothing to compare\n  charts/plain: no values files match values_*.yaml, values-*.yaml\n",
 	} {
 		if !strings.Contains(out, want) {

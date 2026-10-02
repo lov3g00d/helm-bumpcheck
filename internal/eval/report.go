@@ -30,6 +30,7 @@ func WriteText(w io.Writer, results []CaseResult, s Summary) error {
 		fmt.Fprintf(tw, "%s\t%s\t%d/%d\t%d\t%d\t%s\t%s\t%s\n", r.Case.Name, r.Case.Split, len(r.Asked), r.Keys, len(r.Case.Affected), r.Releases, cell(r.Keyword.Score), jevCell(r.Jev), jevPairCell(r.Jev))
 	}
 
+	fmt.Fprintf(tw, "\ncode meaning_changed: %s, keys values.Compare flags against meaning_changed labels\n", cell(s.Code))
 	fmt.Fprintf(tw, "\nside\trecall\tprecision\tquestions\trequests\tinput tokens\test. cost\n")
 	writeSide(tw, "keyword", s.Keyword)
 	if s.Jev != nil {

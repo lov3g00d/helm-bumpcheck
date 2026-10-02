@@ -10,7 +10,10 @@ import (
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
 
-const evidencePerRow = 2
+const (
+	evidencePerRow = 2
+	maxSiblings    = 3
+)
 
 type evidence struct {
 	Probability float64
@@ -65,6 +68,11 @@ func build(res Report) view {
 		v.Breaking = append(v.Breaking, row{Kind: "render", Detail: "the new chart rejects your values", Lines: strings.Split(res.Render.NewError, "\n")})
 	}
 
+	for _, m := range r.MeaningChanged {
+		row := row{Kind: "meaning", Path: m.Path, Detail: describeMeaning(m)}
+		row.Evidence, row.More = pickEvidence(idx, []string{m.Path})
+		v.Check = append(v.Check, row)
+	}
 	for _, c := range r.DefaultChanged {
 		v.Check = append(v.Check, row{Kind: "default", Path: c.Path, Detail: describeChange(c)})
 	}
@@ -102,6 +110,22 @@ func build(res Report) view {
 		}
 	}
 	return v
+}
+
+func describeMeaning(m values.MeaningChange) string {
+	parts := []string{"you set it"}
+	if m.Old != nil {
+		parts = append(parts, "default changed "+describeChange(values.Change{Path: m.Path, Old: m.Old, New: m.New}))
+	}
+	if n := len(m.Siblings); n > 0 {
+		shown := m.Siblings[:min(n, maxSiblings)]
+		beside := "new beside it: " + strings.Join(shown, ", ")
+		if n > len(shown) {
+			beside += fmt.Sprintf(" and %d more", n-len(shown))
+		}
+		parts = append(parts, beside)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func bump(res Report) string {

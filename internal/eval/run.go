@@ -30,14 +30,16 @@ type KeywordCase struct {
 }
 
 type CaseResult struct {
-	Case     Case        `json:"case"`
-	Keys     int         `json:"keys"`
-	Asked    []string    `json:"asked"`
-	Releases int         `json:"releases"`
-	Entries  int         `json:"entries"`
-	Keyword  KeywordCase `json:"keyword"`
-	Jev      *JevCase    `json:"jev,omitempty"`
-	Error    string      `json:"error,omitempty"`
+	Case           Case        `json:"case"`
+	Keys           int         `json:"keys"`
+	Asked          []string    `json:"asked"`
+	MeaningChanged []string    `json:"meaningChanged"`
+	Code           Score       `json:"code"`
+	Releases       int         `json:"releases"`
+	Entries        int         `json:"entries"`
+	Keyword        KeywordCase `json:"keyword"`
+	Jev            *JevCase    `json:"jev,omitempty"`
+	Error          string      `json:"error,omitempty"`
 }
 
 type Runner struct {
@@ -74,6 +76,10 @@ func (r Runner) runCase(ctx context.Context, c Case) (CaseResult, error) {
 	}
 	req := match.Request{Repo: c.AppRepo, TagPrefix: c.TagPrefix, From: c.From, To: c.To, Chart: c.Chart.Name, Keys: rep.NoteKeys()}
 	res.Keys, res.Asked = len(values.Flatten(user)), req.Keys
+	for _, mc := range rep.MeaningChanged {
+		res.MeaningChanged = append(res.MeaningChanged, mc.Path)
+	}
+	res.Code = ScoreKeys(res.MeaningChanged, c.AffectedKeys(DecisionMeaningChanged))
 
 	releases, entries, _, err := match.Fetch(ctx, r.GitHub, req)
 	if err != nil {
@@ -167,6 +173,7 @@ type Summary struct {
 	Threshold float64      `json:"threshold"`
 	Keys      int          `json:"keys"`
 	Asked     int          `json:"asked"`
+	Code      Score        `json:"code"`
 	Keyword   Side         `json:"keyword"`
 	Jev       *Side        `json:"jev,omitempty"`
 	Sweep     []SweepPoint `json:"tuneSweep,omitempty"`
@@ -188,6 +195,7 @@ func Summarize(results []CaseResult, threshold float64) Summary {
 		s.Scored++
 		s.Keys += r.Keys
 		s.Asked += len(r.Asked)
+		s.Code = s.Code.Add(r.Code)
 		s.Keyword.Score = s.Keyword.Score.Add(r.Keyword.Score)
 		if r.Jev == nil {
 			continue
