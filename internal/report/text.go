@@ -45,9 +45,13 @@ func colorEnabled(w io.Writer) bool {
 }
 
 func WriteJSON(w io.Writer, res Report) error {
+	return writeJSON(w, res)
+}
+
+func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(res)
+	return enc.Encode(v)
 }
 
 func WriteText(w io.Writer, res Report) error {

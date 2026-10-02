@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"maps"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
@@ -33,12 +31,6 @@ type options struct {
 }
 
 var ErrFindings = errors.New("report has findings")
-
-var writers = map[string]func(io.Writer, report.Report) error{
-	"text":     report.WriteText,
-	"json":     report.WriteJSON,
-	"markdown": report.WriteMarkdown,
-}
 
 const rootLong = `Check what a chart version bump does to the values you set.
 
@@ -106,7 +98,7 @@ func NewRootCmd(version string) *cobra.Command {
 	p.StringSliceVar(&o.failOn, "fail-on", nil, "exit with code 2 if the report has any of: "+strings.Join(report.FailKinds, ", "))
 	p.BoolVar(&o.render, "render", true, "render both chart versions with your values and report if only the new one fails")
 
-	_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(slices.Sorted(maps.Keys(writers)), cobra.ShellCompDirectiveNoFileComp))
+	_ = cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(report.Formats(), cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.RegisterFlagCompletionFunc("fail-on", cobra.FixedCompletions(report.FailKinds, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.MarkFlagFilename("values", "yaml", "yml")
 	cmd.SetVersionTemplate("helm-bumpcheck version {{.Version}}\n")
@@ -138,7 +130,7 @@ func run(ctx context.Context, w io.Writer, chart string, o options) error {
 	if err != nil {
 		return err
 	}
-	if err := writers[o.output](w, res); err != nil {
+	if err := report.Write(w, o.output, res); err != nil {
 		return err
 	}
 	return failing(o, res)

@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -144,8 +143,8 @@ func analyzeValues(ctx context.Context, d *deps, cs *chartStage, valueFiles, old
 }
 
 func validate(o options) error {
-	if _, ok := writers[o.output]; !ok {
-		return fmt.Errorf("unknown output format %q, want one of %s", o.output, strings.Join(slices.Sorted(maps.Keys(writers)), ", "))
+	if err := report.CheckFormat(o.output); err != nil {
+		return err
 	}
 	for _, k := range o.failOn {
 		if !slices.Contains(report.FailKinds, k) {

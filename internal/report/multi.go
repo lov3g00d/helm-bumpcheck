@@ -1,7 +1,6 @@
 package report
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -16,19 +15,8 @@ type Batch struct {
 	Failed  []Skip   `json:"failed"`
 }
 
-func WriteBatch(w io.Writer, format string, b Batch) error {
-	switch format {
-	case "json":
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(b)
-	case "markdown":
-		return writeBatchMarkdown(w, b)
-	case "text":
-		return writeBatchText(w, b)
-	default:
-		return fmt.Errorf("unknown output format %q", format)
-	}
+func writeBatchJSON(w io.Writer, b Batch) error {
+	return writeJSON(w, b)
 }
 
 func batchSummary(b Batch) string {
