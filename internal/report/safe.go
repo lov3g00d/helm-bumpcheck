@@ -79,10 +79,10 @@ func truncateMarkdown(s string, limit int) string {
 	for line := range strings.SplitSeq(s, "\n") {
 		t := strings.TrimSpace(line)
 		switch {
-		case fence != "" && t == fence:
+		case fence != "" && len(t) >= len(fence) && strings.Trim(t, "`") == "":
 			fence = ""
 		case fence == "" && strings.HasPrefix(t, "```"):
-			fence = strings.TrimRight(t, "abcdefghijklmnopqrstuvwxyz")
+			fence = t[:len(t)-len(strings.TrimLeft(t, "`"))]
 		case fence == "":
 			open += strings.Count(t, "<details>") - strings.Count(t, "</details>")
 		}
