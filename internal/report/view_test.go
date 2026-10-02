@@ -145,3 +145,17 @@ func TestFooterShowsModelAndFailures(t *testing.T) {
 		t.Errorf("footer = %q\nwant     %q", got, want)
 	}
 }
+
+func TestFooterShowsCachedAnswersAndTruncation(t *testing.T) {
+	r := veleroReport()
+	r.Notes[0].Stats = match.Stats{Cached: 6, Model: "jev-1.13.0"}
+	r.Notes[0].Truncated = "releases may be incomplete: stopped after 10 pages at velero-\x1b[31m3.3.0, raise --max-pages to read further"
+	footer := build(r).Footer
+	want := []string{
+		"Release notes (chart): vmware-tanzu/helm-charts 3.2.0 -> 4.0.1, 2 releases, 4 entries, 0 questions, 6 cached answers, jev-1.13.0",
+		"Release notes (chart): releases may be incomplete: stopped after 10 pages at velero-3.3.0, raise --max-pages to read further",
+	}
+	if len(footer) < 2 || footer[0] != want[0] || footer[1] != want[1] {
+		t.Errorf("footer = %q\nwant     %q", footer, want)
+	}
+}

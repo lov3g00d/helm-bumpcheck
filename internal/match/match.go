@@ -51,6 +51,7 @@ type Stats struct {
 	Failed      int    `json:"failed"`
 	Questions   int    `json:"questions"`
 	InputTokens int    `json:"inputTokens"`
+	Cached      int    `json:"cached,omitempty"`
 	Model       string `json:"model,omitempty"`
 }
 
@@ -282,17 +283,18 @@ func (r Request) Candidates(entries []notes.Entry) []Candidate {
 
 type Memo struct {
 	answers map[memoKey]Match
+	model   string
 }
 
 type memoKey struct {
-	release, text, key string
+	repo, release, section, text, key string
 }
 
 func NewMemo() *Memo {
 	return &Memo{answers: map[memoKey]Match{}}
 }
 
-func AskMemo(ctx context.Context, ev Evaluator, memo *Memo, candidates []Candidate, concurrency int) ([]Match, Stats, error) {
+func AskMemo(ctx context.Context, ev Evaluator, memo *Memo, repo string, candidates []Candidate, concurrency int) ([]Match, Stats, error) {
 	var (
 		known   []Match
 		pending []Candidate
@@ -300,7 +302,7 @@ func AskMemo(ctx context.Context, ev Evaluator, memo *Memo, candidates []Candida
 	for _, c := range candidates {
 		var missing []string
 		for _, k := range c.Keys {
-			if m, ok := memo.answers[memoKey{c.Entry.Release, c.Entry.Text, k}]; ok {
+			if m, ok := memo.answers[memoKey{repo, c.Entry.Release, c.Entry.Section, c.Entry.Text, k}]; ok {
 				known = append(known, m)
 			} else {
 				missing = append(missing, k)
@@ -311,11 +313,16 @@ func AskMemo(ctx context.Context, ev Evaluator, memo *Memo, candidates []Candida
 		}
 	}
 	fresh, stats, err := Ask(ctx, ev, pending, concurrency)
-	if err != nil {
+	if err != nil && (len(known) == 0 || ctx.Err() != nil) {
 		return nil, stats, err
 	}
 	for _, m := range fresh {
-		memo.answers[memoKey{m.Release, m.Text, m.Key}] = m
+		memo.answers[memoKey{repo, m.Release, m.Section, m.Text, m.Key}] = m
+	}
+	memo.model = cmp.Or(stats.Model, memo.model)
+	stats.Cached = len(known)
+	if len(known) > 0 {
+		stats.Model = cmp.Or(stats.Model, memo.model)
 	}
 	out := append(known, fresh...)
 	slices.SortStableFunc(out, func(a, b Match) int {

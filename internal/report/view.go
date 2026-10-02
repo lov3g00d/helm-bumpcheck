@@ -160,6 +160,9 @@ func footer(res Report) []string {
 		}
 		line := fmt.Sprintf("Release notes (%s): %s %s -> %s, %d releases, %d entries, %d questions",
 			n.Source, n.Repo, n.From, n.To, n.Releases, n.Entries, n.Stats.Questions)
+		if c := n.Stats.Cached; c > 0 {
+			line += fmt.Sprintf(", %d cached %s", c, plural(c, "answer", "answers"))
+		}
 		if n.Stats.Model != "" {
 			line += ", " + n.Stats.Model
 		}

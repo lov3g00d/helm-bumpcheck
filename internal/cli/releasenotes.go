@@ -131,7 +131,7 @@ func askNotes(ctx context.Context, d *deps, cs *chartStage, f *fetchedNotes, r v
 	}
 
 	req := request(cs.spec.name, src, keys)
-	matches, stats, err := match.AskMemo(ctx, d.jev, cs.memo, req.Candidates(f.entries), match.DefaultConcurrency)
+	matches, stats, err := match.AskMemo(ctx, d.jev, cs.memo, src.repo, req.Candidates(f.entries), match.DefaultConcurrency)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, err

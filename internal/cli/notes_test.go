@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/lov3g00d/helm-bumpcheck/internal/jev"
+	"github.com/lov3g00d/helm-bumpcheck/internal/match"
 	"github.com/lov3g00d/helm-bumpcheck/internal/report"
 )
 
@@ -40,7 +41,7 @@ func fakeAPIs(t *testing.T) *atomic.Int32 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decode jev request: %v", err)
 		}
-		resp := jev.Response{Answers: map[string]jev.Answer{}, Usage: jev.Usage{InputTokens: 50}}
+		resp := jev.Response{Model: "jev-1.13.0", Answers: map[string]jev.Answer{}, Usage: jev.Usage{InputTokens: 50}}
 		for id, q := range req.Questions {
 			p := 0.02
 			if strings.Contains(req.State["entry"], "legacy") && strings.Contains(q.Instructions["config_key"], "legacy") {
@@ -178,14 +179,35 @@ func TestChartNotes(t *testing.T) {
 }
 
 func TestDiffFetchesNotesOncePerChart(t *testing.T) {
-	g, base, head := bumpHistory(t)
+	g, base, _ := bumpHistory(t)
+	g.write(map[string]string{"charts/app/values_dev.yaml": "legacy:\n  enabled: true\n"})
+	head := g.commit("dev values")
 	ghCalls := fakeAPIs(t)
-	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--notes")
+	out, err := execute(t, "diff", "-C", g.dir, "--base", base, "--head", head, "--notes", "-o", "json")
 	if err != nil {
 		t.Fatalf("execute: %v\n%s", err, out)
 	}
 	if got := ghCalls.Load(); got != 2 {
-		t.Errorf("GitHub requests = %d, want 2 (one per notes source, shared by both values files)", got)
+		t.Errorf("GitHub requests = %d, want 2 (one per notes source, shared by every values file)", got)
+	}
+
+	var batch report.Batch
+	if err := json.Unmarshal([]byte(out), &batch); err != nil {
+		t.Fatal(err)
+	}
+	stats := map[string]match.Stats{}
+	for _, r := range batch.Reports {
+		for _, n := range r.Notes {
+			if n.Source == "app" {
+				stats[r.Values] = n.Stats
+			}
+		}
+	}
+	if s := stats["values_dev.yaml"]; s.Requests == 0 || s.Cached != 0 || s.Model != "jev-1.13.0" {
+		t.Errorf("first file stats = %+v, want fresh requests", s)
+	}
+	if s := stats["values_prod.yaml"]; s.Requests != 0 || s.Questions != 0 || s.Cached != stats["values_dev.yaml"].Questions || s.Model != "jev-1.13.0" {
+		t.Errorf("second file stats = %+v, want every answer cached and the model kept", s)
 	}
 }
 

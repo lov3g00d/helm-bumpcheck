@@ -257,12 +257,12 @@ func TestAskMemoReusesAnswers(t *testing.T) {
 	memo := NewMemo()
 	candidates := []Candidate{{Entry: notes.Entry{Release: "v1", Text: "removed x"}, Keys: []string{"a.key", "b.key"}}}
 
-	first, stats, err := AskMemo(context.Background(), ev, memo, candidates, 2)
+	first, stats, err := AskMemo(context.Background(), ev, memo, "acme/app", candidates, 2)
 	if err != nil || len(first) != 2 || stats.Questions != 2 {
 		t.Fatalf("first = %v %+v %v", first, stats, err)
 	}
 	more := []Candidate{{Entry: candidates[0].Entry, Keys: []string{"a.key", "c.key"}}}
-	second, stats, err := AskMemo(context.Background(), ev, memo, more, 2)
+	second, stats, err := AskMemo(context.Background(), ev, memo, "acme/app", more, 2)
 	if err != nil || len(second) != 2 || stats.Questions != 1 || ev.calls != 2 {
 		t.Errorf("second = %v %+v %v calls=%d, want only c.key asked", second, stats, err, ev.calls)
 	}
@@ -279,5 +279,61 @@ func TestAskReportsMissingAnswers(t *testing.T) {
 	_, stats, err := Ask(context.Background(), missingAnswerEvaluator{}, candidates, 1)
 	if err == nil || !strings.Contains(err.Error(), "no answer for key a.key") || stats.Failed != 1 {
 		t.Errorf("err = %v stats = %+v", err, stats)
+	}
+}
+
+func TestAskMemoKeysBySourceAndSection(t *testing.T) {
+	ev := &fakeEvaluator{answer: func(entry, key string) float64 { return 0.7 }}
+	memo := NewMemo()
+	entry := notes.Entry{Release: "v1", Section: "Features", Text: "removed x"}
+	ask := func(repo string, e notes.Entry) {
+		t.Helper()
+		if _, _, err := AskMemo(context.Background(), ev, memo, repo, []Candidate{{Entry: e, Keys: []string{"a.key"}}}, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask("acme/app", entry)
+	ask("acme/app", entry)
+	ask("acme/charts", entry)
+	moved := entry
+	moved.Section = "Breaking Changes"
+	ask("acme/app", moved)
+	if ev.calls != 3 {
+		t.Errorf("calls = %d, want 3: one per repo and section, none for the repeat", ev.calls)
+	}
+}
+
+func TestAskMemoKeepsCachedAnswersWhenRequestsFail(t *testing.T) {
+	memo := NewMemo()
+	cached := Candidate{Entry: notes.Entry{Release: "v1", Text: "removed thing"}, Keys: []string{"a.key"}}
+	if _, _, err := AskMemo(context.Background(), flakyEvaluator{}, memo, "acme/app", []Candidate{cached}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	failing := Candidate{Entry: notes.Entry{Release: "v2", Text: "flaky entry"}, Keys: []string{"b.key"}}
+	got, stats, err := AskMemo(context.Background(), flakyEvaluator{}, memo, "acme/app", []Candidate{cached, failing}, 1)
+	if err != nil {
+		t.Fatalf("err = %v, want the cached answer", err)
+	}
+	if len(got) != 1 || got[0].Key != "a.key" {
+		t.Errorf("matches = %+v", got)
+	}
+	if want := (Stats{Requests: 1, Failed: 1, Cached: 1, Model: "jev-1.13.0"}); stats != want {
+		t.Errorf("stats = %+v, want %+v", stats, want)
+	}
+
+	_, stats, err = AskMemo(context.Background(), flakyEvaluator{}, memo, "acme/app", []Candidate{cached}, 1)
+	if want := (Stats{Cached: 1, Model: "jev-1.13.0"}); err != nil || stats != want {
+		t.Errorf("fully cached: stats = %+v, err %v, want %+v", stats, err, want)
+	}
+
+	if _, _, err := AskMemo(context.Background(), flakyEvaluator{}, memo, "acme/app", []Candidate{failing}, 1); err == nil {
+		t.Error("expected an error when nothing is cached and every request fails")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := AskMemo(ctx, flakyEvaluator{}, memo, "acme/app", []Candidate{cached, failing}, 1); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
 	}
 }
