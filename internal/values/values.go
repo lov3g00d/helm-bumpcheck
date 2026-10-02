@@ -133,30 +133,77 @@ func isStandardBlock(name string) bool {
 	return standardBlocks[n] || strings.HasSuffix(n, "annotations") || strings.HasSuffix(n, "labels")
 }
 
-func freeformBlock(l Leaves, segments []string) ([]string, bool) {
+func isOpen(v any) bool {
+	if v == nil {
+		return true
+	}
+	m, ok := v.(map[string]any)
+	return ok && len(m) == 0
+}
+
+func isMapOrNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	_, ok := v.(map[string]any)
+	return ok
+}
+
+func openBlock(defaults map[string]any, segments []string) ([]string, bool) {
 	for i := len(segments) - 1; i > 0; i-- {
-		anc, ok := l[Path(segments[:i])]
-		if !ok {
-			continue
+		if v, ok := lookup(defaults, segments[:i]); ok {
+			return segments[:i], isOpen(v)
 		}
-		m, isMap := anc.Value.(map[string]any)
-		return segments[:i], isMap && len(m) == 0
 	}
 	return nil, false
 }
 
-func freeformAncestor(l Leaves, segments []string) bool {
-	_, ok := freeformBlock(l, segments)
-	return ok
+func standardAncestor(defaults map[string]any, segments []string) bool {
+	for i := 1; i < len(segments); i++ {
+		if !isStandardBlock(segments[i-1]) {
+			continue
+		}
+		if v, ok := lookup(defaults, segments[:i]); ok && isMapOrNil(v) {
+			return true
+		}
+	}
+	return false
 }
 
-func (r *Report) addFreeform(newL Leaves, leaf Leaf, path string) {
-	block, _ := freeformBlock(newL, leaf.Segments)
-	if len(block) > 0 && isStandardBlock(block[len(block)-1]) {
+func (r *Report) classify(oldDefaults, newDefaults map[string]any, leaf Leaf, path string, inOld bool) {
+	segs := leaf.Segments
+	if isOpen(leaf.Value) {
+		_, inNewTree := lookup(newDefaults, segs)
+		_, inOldTree := lookup(oldDefaults, segs)
+		if inNewTree || inOldTree {
+			return
+		}
+	}
+	if standardAncestor(newDefaults, segs) {
 		r.Standard = append(r.Standard, path)
 		return
 	}
-	r.Freeform = append(r.Freeform, path)
+	if inOld {
+		if _, open := openBlock(newDefaults, segs); open {
+			r.Freeform = append(r.Freeform, path)
+		} else {
+			r.Removed = append(r.Removed, path)
+		}
+		return
+	}
+	if block, open := openBlock(oldDefaults, segs); open {
+		if v, ok := lookup(newDefaults, block); ok && isMapOrNil(v) {
+			r.Freeform = append(r.Freeform, path)
+		} else {
+			r.Removed = append(r.Removed, path)
+		}
+		return
+	}
+	if _, open := openBlock(newDefaults, segs); open {
+		r.Freeform = append(r.Freeform, path)
+		return
+	}
+	r.Undeclared = append(r.Undeclared, path)
 }
 
 func Compare(oldDefaults, newDefaults, user map[string]any) Report {
@@ -173,27 +220,11 @@ func Compare(oldDefaults, newDefaults, user map[string]any) Report {
 			typed[path].Keys = append(typed[path].Keys, p)
 			continue
 		}
-		_, inOld := oldL[p]
-		_, inNew := newL[p]
-		switch {
-		case inNew:
-		case inOld:
-			if freeformAncestor(newL, leaf.Segments) {
-				r.addFreeform(newL, leaf, p)
-			} else {
-				r.Removed = append(r.Removed, p)
-			}
-		case freeformAncestor(oldL, leaf.Segments):
-			if freeformAncestor(newL, leaf.Segments) {
-				r.addFreeform(newL, leaf, p)
-			} else {
-				r.Removed = append(r.Removed, p)
-			}
-		case freeformAncestor(newL, leaf.Segments):
-			r.addFreeform(newL, leaf, p)
-		default:
-			r.Undeclared = append(r.Undeclared, p)
+		if _, inNew := newL[p]; inNew {
+			continue
 		}
+		_, inOld := oldL[p]
+		r.classify(oldDefaults, newDefaults, leaf, p, inOld)
 	}
 
 	for p, o := range oldL {

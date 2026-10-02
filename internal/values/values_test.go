@@ -243,3 +243,91 @@ structuredConfig:
 		t.Errorf("StandardBlocks = %q", blocks)
 	}
 }
+
+func TestCompareClassificationEdgeCases(t *testing.T) {
+	tests := []struct {
+		name                        string
+		old, new, user              string
+		removed, freeform, standard []string
+		undeclared                  []string
+	}{
+		{
+			name:     "free-form block that gains defaults is not removed",
+			old:      "config: {}\n",
+			new:      "config:\n  a: 1\n",
+			user:     "config:\n  b: 2\n",
+			freeform: []string{"config.b"},
+		},
+		{
+			name:     "empty security context that gains defaults stays standard",
+			old:      "podSecurityContext: {}\n",
+			new:      "podSecurityContext:\n  fsGroup: 1001\n",
+			user:     "podSecurityContext:\n  runAsUser: 1000\n",
+			standard: []string{"podSecurityContext.runAsUser"},
+		},
+		{
+			name: "null deletes a declared key",
+			old:  "metrics:\n  enabled: true\n",
+			new:  "metrics:\n  enabled: true\n",
+			user: "metrics: null\n",
+		},
+		{
+			name: "empty map over a declared map is an override",
+			old:  "resources:\n  limits:\n    cpu: 1\n",
+			new:  "resources:\n  limits:\n    cpu: 1\n",
+			user: "resources: {}\n",
+		},
+		{
+			name:     "null default block is open",
+			old:      "extra:\n",
+			new:      "extra:\n",
+			user:     "extra:\n  a: 1\n",
+			freeform: []string{"extra.a"},
+		},
+		{
+			name:     "open block that becomes null stays open",
+			old:      "extra: {}\n",
+			new:      "extra: ~\n",
+			user:     "extra:\n  a: 1\n",
+			freeform: []string{"extra.a"},
+		},
+		{
+			name:     "partially declared standard block",
+			old:      "resources:\n  requests:\n    cpu: 100m\n",
+			new:      "resources:\n  requests:\n    cpu: 100m\n",
+			user:     "resources:\n  limits:\n    memory: 1Gi\n",
+			standard: []string{"resources.limits.memory"},
+		},
+		{
+			name:    "open block removed from the chart",
+			old:     "extra: {}\n",
+			new:     "other: 1\n",
+			user:    "extra:\n  a: 1\n",
+			removed: []string{"extra.a"},
+		},
+		{
+			name:       "misplaced key next to a standard block stays undeclared",
+			old:        "sidecar:\n  resources: {}\n",
+			new:        "sidecar:\n  resources: {}\n",
+			user:       "sidecar:\n  limits:\n    cpu: 1\n",
+			undeclared: []string{"sidecar.limits.cpu"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Compare(mustParse(t, tt.old), mustParse(t, tt.new), mustParse(t, tt.user))
+			check := func(field string, got, want []string) {
+				if len(got) == 0 && len(want) == 0 {
+					return
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Errorf("%s = %q, want %q", field, got, want)
+				}
+			}
+			check("Removed", got.Removed, tt.removed)
+			check("Freeform", got.Freeform, tt.freeform)
+			check("Standard", got.Standard, tt.standard)
+			check("Undeclared", got.Undeclared, tt.undeclared)
+		})
+	}
+}
