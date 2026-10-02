@@ -281,26 +281,29 @@ func dependencyChanges(oldDeps, newDeps []helm.Dependency) []string {
 }
 
 func lockChanges(oldDeps, newDeps, oldLock, newLock []helm.Dependency) []string {
-	byName := func(deps []helm.Dependency) map[string]helm.Dependency {
-		m := make(map[string]helm.Dependency, len(deps))
+	versions := func(deps []helm.Dependency) map[string][]string {
+		m := map[string][]string{}
 		for _, d := range deps {
-			m[d.Name] = d
+			m[d.Name] = append(m[d.Name], orNone(d.Version))
+		}
+		for _, v := range m {
+			slices.Sort(v)
 		}
 		return m
 	}
-	oldDecl, newDecl, before, after := byName(oldDeps), byName(newDeps), byName(oldLock), byName(newLock)
+	oldDecl, newDecl, before, after := versions(oldDeps), versions(newDeps), versions(oldLock), versions(newLock)
 
 	var changes []string
 	for _, name := range slices.Sorted(maps.Keys(after)) {
 		o, ok := before[name]
 		n := after[name]
-		if !ok || o.Version == n.Version {
+		if !ok || slices.Equal(o, n) {
 			continue
 		}
-		if oldDecl[name].Version == o.Version && newDecl[name].Version == n.Version {
+		if slices.Equal(oldDecl[name], o) && slices.Equal(newDecl[name], n) {
 			continue
 		}
-		changes = append(changes, fmt.Sprintf("%s %s -> %s locked", name, orNone(o.Version), orNone(n.Version)))
+		changes = append(changes, fmt.Sprintf("%s %s -> %s locked", name, strings.Join(o, ", "), strings.Join(n, ", ")))
 	}
 	return changes
 }

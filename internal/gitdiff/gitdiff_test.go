@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
 )
 
 type testRepo struct {
@@ -318,6 +320,44 @@ func TestChangedChartsReadsLockFiles(t *testing.T) {
 	}
 	if !reflect.DeepEqual(skips, want) {
 		t.Errorf("skips = %+v\nwant %+v", skips, want)
+	}
+}
+
+func TestLockChanges(t *testing.T) {
+	redis := func(alias, version string) helm.Dependency {
+		return helm.Dependency{Name: "redis", Alias: alias, Version: version}
+	}
+	lock := func(versions ...string) []helm.Dependency {
+		var out []helm.Dependency
+		for _, v := range versions {
+			out = append(out, helm.Dependency{Name: "redis", Version: v})
+		}
+		return out
+	}
+	aliased := []helm.Dependency{redis("cache", "~17.0.0"), redis("queue", "~18.0.0")}
+	pinned := func(a, b string) []helm.Dependency {
+		return []helm.Dependency{redis("cache", a), redis("queue", b)}
+	}
+
+	for _, tc := range []struct {
+		name             string
+		oldDeps, newDeps []helm.Dependency
+		oldLock, newLock []helm.Dependency
+		want             []string
+	}{
+		{"one alias of two relocked", aliased, aliased, lock("17.0.1", "18.0.0"), lock("17.0.2", "18.0.0"),
+			[]string{"redis 17.0.1, 18.0.0 -> 17.0.2, 18.0.0 locked"}},
+		{"lock order changes only", aliased, aliased, lock("17.0.1", "18.0.0"), lock("18.0.0", "17.0.1"), nil},
+		{"pinned versions already listed", pinned("17.0.1", "18.0.0"), pinned("17.0.2", "18.0.0"),
+			lock("17.0.1", "18.0.0"), lock("17.0.2", "18.0.0"), nil},
+		{"single entry", []helm.Dependency{redis("", "~17.0.0")}, []helm.Dependency{redis("", "~17.0.0")},
+			lock("17.0.1"), lock("17.0.2"), []string{"redis 17.0.1 -> 17.0.2 locked"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := lockChanges(tc.oldDeps, tc.newDeps, tc.oldLock, tc.newLock); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("lockChanges = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
