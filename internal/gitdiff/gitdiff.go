@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"go.yaml.in/yaml/v3"
+	"github.com/lov3g00d/helm-bumpcheck/internal/helm"
 )
 
 const waitDelay = 5 * time.Second
@@ -101,19 +101,6 @@ func nested(files map[string]bool, dir string) bool {
 		return files["Chart.yaml"]
 	}
 	return files[owner+"/Chart.yaml"]
-}
-
-type chartMeta struct {
-	Name         string       `yaml:"name"`
-	Version      string       `yaml:"version"`
-	Dependencies []dependency `yaml:"dependencies"`
-}
-
-type dependency struct {
-	Name       string `yaml:"name"`
-	Version    string `yaml:"version"`
-	Repository string `yaml:"repository"`
-	Alias      string `yaml:"alias"`
 }
 
 func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []Skip, error) {
@@ -207,39 +194,27 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 	return charts, skips, nil
 }
 
-func (r Repo) meta(ctx context.Context, rev, dir string, files map[string]bool) (chartMeta, error) {
-	var m chartMeta
-	if err := r.decode(ctx, rev, path.Join(dir, "Chart.yaml"), &m); err != nil {
-		return chartMeta{}, err
+func (r Repo) meta(ctx context.Context, rev, dir string, files map[string]bool) (helm.Metadata, error) {
+	chartYAML, err := r.show(ctx, rev, path.Join(dir, "Chart.yaml"))
+	if err != nil {
+		return helm.Metadata{}, err
 	}
+	var requirementsYAML []byte
 	if req := path.Join(dir, "requirements.yaml"); files[req] {
-		var v1 struct {
-			Dependencies []dependency `yaml:"dependencies"`
+		if requirementsYAML, err = r.show(ctx, rev, req); err != nil {
+			return helm.Metadata{}, err
 		}
-		if err := r.decode(ctx, rev, req, &v1); err != nil {
-			return chartMeta{}, err
-		}
-		if v1.Dependencies != nil {
-			m.Dependencies = v1.Dependencies
-		}
+	}
+	m, err := helm.ParseMetadata(chartYAML, requirementsYAML)
+	if err != nil {
+		return helm.Metadata{}, fmt.Errorf("%s at %s: %w", dir, rev, err)
 	}
 	return m, nil
 }
 
-func (r Repo) decode(ctx context.Context, rev, file string, v any) error {
-	data, err := r.show(ctx, rev, file)
-	if err != nil {
-		return err
-	}
-	if err := yaml.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("parse %s at %s: %w", file, rev, err)
-	}
-	return nil
-}
-
-func dependencyChanges(oldDeps, newDeps []dependency) []string {
-	index := func(deps []dependency) map[string]dependency {
-		m := make(map[string]dependency, len(deps))
+func dependencyChanges(oldDeps, newDeps []helm.Dependency) []string {
+	index := func(deps []helm.Dependency) map[string]helm.Dependency {
+		m := make(map[string]helm.Dependency, len(deps))
 		for _, d := range deps {
 			m[cmp.Or(d.Alias, d.Name)] = d
 		}
@@ -260,25 +235,25 @@ func dependencyChanges(oldDeps, newDeps []dependency) []string {
 		n, inNew := after[k]
 		switch {
 		case !inOld:
-			changes = append(changes, fmt.Sprintf("%s %s added", n.label(), orNone(n.Version)))
+			changes = append(changes, fmt.Sprintf("%s %s added", label(n), orNone(n.Version)))
 		case !inNew:
-			changes = append(changes, fmt.Sprintf("%s %s removed", o.label(), orNone(o.Version)))
+			changes = append(changes, fmt.Sprintf("%s %s removed", label(o), orNone(o.Version)))
 		default:
 			if o.Name != n.Name {
 				changes = append(changes, fmt.Sprintf("%s chart %s -> %s", k, o.Name, n.Name))
 			}
 			if o.Version != n.Version {
-				changes = append(changes, fmt.Sprintf("%s %s -> %s", n.label(), orNone(o.Version), orNone(n.Version)))
+				changes = append(changes, fmt.Sprintf("%s %s -> %s", label(n), orNone(o.Version), orNone(n.Version)))
 			}
 			if o.Repository != n.Repository {
-				changes = append(changes, fmt.Sprintf("%s repository %s -> %s", n.label(), orNone(o.Repository), orNone(n.Repository)))
+				changes = append(changes, fmt.Sprintf("%s repository %s -> %s", label(n), orNone(o.Repository), orNone(n.Repository)))
 			}
 		}
 	}
 	return changes
 }
 
-func (d dependency) label() string {
+func label(d helm.Dependency) string {
 	if d.Alias != "" && d.Alias != d.Name {
 		return d.Alias + " (" + d.Name + ")"
 	}

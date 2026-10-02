@@ -170,7 +170,7 @@ func TestChangedChartsEdgeCases(t *testing.T) {
 	if len(charts) != 1 || charts[0].Dir != "café" || charts[0].ToVersion != "2.0.0" {
 		t.Errorf("charts = %+v, want only the non-ASCII chart; the root chart's subchart must be nested", charts)
 	}
-	if len(skips) != 1 || skips[0].Dir != "broken" || !strings.Contains(skips[0].Reason, "parse broken/Chart.yaml") {
+	if len(skips) != 1 || skips[0].Dir != "broken" || !strings.Contains(skips[0].Reason, "parse Chart.yaml") {
 		t.Errorf("skips = %+v, want the malformed chart skipped", skips)
 	}
 }

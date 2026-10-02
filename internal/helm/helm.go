@@ -42,8 +42,10 @@ type Metadata struct {
 }
 
 type Dependency struct {
-	Name  string `yaml:"name"`
-	Alias string `yaml:"alias"`
+	Name       string `yaml:"name"`
+	Version    string `yaml:"version"`
+	Repository string `yaml:"repository"`
+	Alias      string `yaml:"alias"`
 }
 
 func (m Metadata) DependencyNames() []string {
@@ -94,20 +96,17 @@ func (r Runner) Pull(ctx context.Context, c Chart, dest string) (string, error) 
 }
 
 func LoadDir(dir string) ([]byte, Metadata, error) {
-	var m Metadata
-	if err := decodeFile(filepath.Join(dir, "Chart.yaml"), &m); err != nil {
+	chartYAML, err := os.ReadFile(filepath.Join(dir, "Chart.yaml"))
+	if err != nil {
 		return nil, Metadata{}, err
 	}
-	var v1 struct {
-		Dependencies []Dependency `yaml:"dependencies"`
-	}
-	err := decodeFile(filepath.Join(dir, "requirements.yaml"), &v1)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-	case err != nil:
+	requirementsYAML, err := os.ReadFile(filepath.Join(dir, "requirements.yaml"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, Metadata{}, err
-	case v1.Dependencies != nil:
-		m.Dependencies = v1.Dependencies
+	}
+	m, err := ParseMetadata(chartYAML, requirementsYAML)
+	if err != nil {
+		return nil, Metadata{}, fmt.Errorf("%s: %w", dir, err)
 	}
 	defaults, err := os.ReadFile(filepath.Join(dir, "values.yaml"))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -116,15 +115,24 @@ func LoadDir(dir string) ([]byte, Metadata, error) {
 	return defaults, m, err
 }
 
-func decodeFile(path string, v any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
+func ParseMetadata(chartYAML, requirementsYAML []byte) (Metadata, error) {
+	var m Metadata
+	if err := yaml.Unmarshal(chartYAML, &m); err != nil {
+		return Metadata{}, fmt.Errorf("parse Chart.yaml: %w", err)
 	}
-	if err := yaml.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
+	if requirementsYAML == nil {
+		return m, nil
 	}
-	return nil
+	var v1 struct {
+		Dependencies []Dependency `yaml:"dependencies"`
+	}
+	if err := yaml.Unmarshal(requirementsYAML, &v1); err != nil {
+		return Metadata{}, fmt.Errorf("parse requirements.yaml: %w", err)
+	}
+	if v1.Dependencies != nil {
+		m.Dependencies = v1.Dependencies
+	}
+	return m, nil
 }
 
 func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) error {
