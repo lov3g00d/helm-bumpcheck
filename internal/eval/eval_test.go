@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,7 @@ mkdir -p "$dest/app"
 case "$version" in
   2.9.0) values='app:\n  processor:\n    local_blocks:\n      flush_to_storage: false\n  server:\n    http_listen_port: 3100\n  storage:\n    trace:\n      backend: local\n' ;;
   3.0.0) values='app:\n  server:\n    http_listen_port: 3100\n  storage:\n    trace:\n      backend: local\n' ;;
+  3.2.0) values='app:\n  server: []\n  storage:\n    trace:\n      backend: local\n' ;;
   3.1.0) values='app:\n  server:\n    http_listen_port: 3200\n  storage:\n    trace:\n      backend: local\n' ;;
   *) echo "Error: chart version not found" >&2; exit 1 ;;
 esac
@@ -439,6 +441,30 @@ func TestRunScoresMeaningChangedInCode(t *testing.T) {
 	}
 	if want := "code meaning_changed: 1/0/0"; s.Code != (Score{TP: 1}) || !strings.Contains(text.String(), want) {
 		t.Errorf("code %+v, text missing %q:\n%s", s.Code, want, text.String())
+	}
+}
+
+func TestRunLinksRemovedKeysToTypeChanges(t *testing.T) {
+	c := testCases(t)[0]
+	c.To = "3.2.0"
+	r := Runner{Helm: fakeHelm(t), GitHub: fakeGitHub(t), Jev: fakeJev{}, Threshold: 0.5}
+	results, err := r.Run(context.Background(), []Case{c})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := results[0]
+	if got.Error != "" {
+		t.Fatal(got.Error)
+	}
+	var asked []string
+	for _, m := range got.Jev.Matches {
+		if strings.HasPrefix(m.Text, "Faster http") {
+			asked = append(asked, m.Key)
+		}
+	}
+	slices.Sort(asked)
+	if want := []string{keyGone, keyFine}; !reflect.DeepEqual(asked, want) || got.Jev.Stats.Questions != 4 {
+		t.Errorf("keys asked about the port entry = %v (%d questions), want %v linked through app", asked, got.Jev.Stats.Questions, want)
 	}
 }
 

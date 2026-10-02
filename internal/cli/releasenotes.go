@@ -83,7 +83,7 @@ func fetchNotes(ctx context.Context, d *deps, chart string, src notesSource) *fe
 		return f
 	}
 
-	releases, entries, trunc, err := match.Fetch(ctx, d.gh, request(chart, src, nil))
+	releases, entries, trunc, err := match.Fetch(ctx, d.gh, request(chart, src))
 	if err != nil {
 		f.skipped = err.Error()
 		return f
@@ -124,13 +124,13 @@ func askNotes(ctx context.Context, d *deps, cs *chartStage, f *fetchedNotes, r v
 	if res.Skipped != "" {
 		return res, nil
 	}
-	keys := r.NoteKeys()
-	if len(keys) == 0 {
+	req := request(cs.spec.name, src)
+	req.Keys, req.Linked = r.NoteKeys(), r.Linked()
+	if len(req.Keys) == 0 {
 		res.Skipped = "no keys need checking"
 		return res, nil
 	}
 
-	req := request(cs.spec.name, src, keys)
 	matches, stats, err := match.AskMemo(ctx, d.jev, cs.memo, src.repo, req.Candidates(f.entries), match.DefaultConcurrency)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -143,13 +143,12 @@ func askNotes(ctx context.Context, d *deps, cs *chartStage, f *fetchedNotes, r v
 	return res, nil
 }
 
-func request(chart string, src notesSource, keys []string) match.Request {
+func request(chart string, src notesSource) match.Request {
 	return match.Request{
 		Repo:      src.repo,
 		TagPrefix: src.tagPrefix,
 		From:      src.from,
 		To:        src.to,
 		Chart:     chart,
-		Keys:      keys,
 	}
 }

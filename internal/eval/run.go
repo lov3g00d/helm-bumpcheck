@@ -74,7 +74,7 @@ func (r Runner) runCase(ctx context.Context, c Case) (CaseResult, error) {
 	if err != nil {
 		return res, err
 	}
-	req := match.Request{Repo: c.AppRepo, TagPrefix: c.TagPrefix, From: c.From, To: c.To, Chart: c.Chart.Name, Keys: rep.NoteKeys()}
+	req := match.Request{Repo: c.AppRepo, TagPrefix: c.TagPrefix, From: c.From, To: c.To, Chart: c.Chart.Name, Keys: rep.NoteKeys(), Linked: rep.Linked()}
 	res.Keys, res.Asked = len(values.Flatten(user)), req.Keys
 	for _, mc := range rep.MeaningChanged {
 		res.MeaningChanged = append(res.MeaningChanged, mc.Path)

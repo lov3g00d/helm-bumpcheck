@@ -62,6 +62,33 @@ func (r Report) NoteKeys() []string {
 	return slices.Concat(r.Removed, typed, meaning, r.Freeform, r.Undeclared)
 }
 
+func (r Report) Linked() map[string][]string {
+	out := map[string][]string{}
+	for _, k := range r.Removed {
+		for _, tc := range r.TypeChanged {
+			if root(tc.Path) == root(k) {
+				out[k] = append(out[k], tc.Keys...)
+			}
+		}
+	}
+	return out
+}
+
+func root(path string) string {
+	if strings.HasPrefix(path, "[") {
+		if q, err := strconv.QuotedPrefix(path[1:]); err == nil {
+			if s, err := strconv.Unquote(q); err == nil {
+				return s
+			}
+		}
+		return path
+	}
+	if i := strings.IndexAny(path, ".["); i > 0 {
+		return path[:i]
+	}
+	return path
+}
+
 func Parse(data []byte) (map[string]any, error) {
 	var raw map[any]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {

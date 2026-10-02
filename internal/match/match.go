@@ -244,6 +244,7 @@ type Request struct {
 	To        string
 	Chart     string
 	Keys      []string
+	Linked    map[string][]string
 }
 
 func Fetch(ctx context.Context, gh *notes.GitHub, req Request) ([]notes.Release, []notes.Entry, *notes.Truncation, error) {
@@ -263,7 +264,20 @@ func (r Request) ignore() []string {
 }
 
 func (r Request) Candidates(entries []notes.Entry) []Candidate {
-	return Candidates(entries, r.Keys, r.ignore())
+	out := Candidates(entries, r.Keys, r.ignore())
+	if len(r.Linked) == 0 {
+		return out
+	}
+	for i, c := range out {
+		var keys []string
+		for _, k := range r.Keys {
+			if slices.Contains(c.Keys, k) || slices.ContainsFunc(r.Linked[k], func(l string) bool { return slices.Contains(c.Keys, l) }) {
+				keys = append(keys, k)
+			}
+		}
+		out[i].Keys = keys
+	}
+	return out
 }
 
 type Memo struct {

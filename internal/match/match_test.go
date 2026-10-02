@@ -69,6 +69,22 @@ func TestRequestCandidatesIgnoresChartName(t *testing.T) {
 	}
 }
 
+func TestRequestCandidatesLinksKeys(t *testing.T) {
+	entries := []notes.Entry{
+		{Release: "velero-4.0.0", Section: "What's Changed", Text: "[velero] Add support for multiple backupstoragelocations and volumesnapshotlocations"},
+		{Release: "velero-4.0.0", Section: "What's Changed", Text: "[velero] Bump the plugin image"},
+	}
+	keys := []string{"configuration.provider", "configuration.backupStorageLocation.bucket", "schedules.daily.ttl"}
+	req := Request{Repo: "vmware-tanzu/helm-charts", Chart: "velero", Keys: keys}
+	if got, want := req.Candidates(entries), []Candidate{{Entry: entries[0], Keys: keys[1:2]}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("unlinked Candidates =\n%+v\nwant\n%+v", got, want)
+	}
+	req.Linked = map[string][]string{"configuration.provider": {"configuration.backupStorageLocation.bucket"}}
+	if got, want := req.Candidates(entries), []Candidate{{Entry: entries[0], Keys: keys[:2]}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("linked Candidates =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
 type fakeEvaluator struct {
 	mu       sync.Mutex
 	inFlight atomic.Int32

@@ -555,3 +555,39 @@ func TestCompareMeaningChanged(t *testing.T) {
 		})
 	}
 }
+
+func TestLinked(t *testing.T) {
+	r := Report{
+		Removed: []string{"configuration.provider", "other.key", `["grafana.ini"].legacy`, `a["x.y"]`},
+		TypeChanged: []TypeChange{
+			{Path: "configuration.backupStorageLocation", Keys: []string{"configuration.backupStorageLocation.bucket", "configuration.backupStorageLocation.name"}},
+			{Path: "configuration.volumeSnapshotLocation", Keys: []string{"configuration.volumeSnapshotLocation.provider"}},
+			{Path: `["grafana.ini"].auth`, Keys: []string{`["grafana.ini"].auth.enabled`}},
+			{Path: "a.b", Keys: []string{"a.b.c"}},
+			{Path: "grafana", Keys: []string{"grafana.x"}},
+		},
+	}
+	want := map[string][]string{
+		"configuration.provider": {"configuration.backupStorageLocation.bucket", "configuration.backupStorageLocation.name", "configuration.volumeSnapshotLocation.provider"},
+		`["grafana.ini"].legacy`: {`["grafana.ini"].auth.enabled`},
+		`a["x.y"]`:               {"a.b.c"},
+	}
+	if got := r.Linked(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Linked = %v, want %v", got, want)
+	}
+}
+
+func TestRoot(t *testing.T) {
+	for path, want := range map[string]string{
+		"a":                     "a",
+		"a.b.c":                 "a",
+		`a["x.y"]`:              "a",
+		`["grafana.ini"].auth`:  "grafana.ini",
+		`["a\"b"]`:              `a"b`,
+		`podAnnotations["k"].v`: "podAnnotations",
+	} {
+		if got := root(path); got != want {
+			t.Errorf("root(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
