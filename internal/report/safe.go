@@ -8,7 +8,7 @@ import (
 
 var (
 	ansiEscape = regexp.MustCompile(`\x1b(\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)?|[@-Z\\-_])`)
-	mention    = regexp.MustCompile(`(^|[^\w@])@([A-Za-z0-9])`)
+	mention    = regexp.MustCompile(`(^|\W)@([A-Za-z0-9])`)
 )
 
 const (

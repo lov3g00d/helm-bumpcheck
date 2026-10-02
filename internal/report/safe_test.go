@@ -28,3 +28,21 @@ func TestSanitizeUnicodeFormatCharacters(t *testing.T) {
 		})
 	}
 }
+
+func TestNeutralizeMentions(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"@octocat", "@&#8203;octocat"},
+		{"A @@octocat", "A @@&#8203;octocat"},
+		{"x @@@org/team", "x @@@&#8203;org/team"},
+		{"_@octocat", "_@octocat"},
+		{"a@b.com", "a@b.com"},
+		{"@&#8203;octocat", "@&#8203;octocat"},
+	}
+	for _, tt := range tests {
+		if got := neutralizeMentions(tt.in); got != tt.want {
+			t.Errorf("neutralizeMentions(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
