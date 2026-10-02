@@ -163,7 +163,7 @@ func TestDiffMarkdown(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## helm bumpcheck\n",
-		"| `app` 1.0.0 -&gt; 2.0.0 | `values_prod.yaml` | 1 breaking, 1 to check, 0 unverified |\n",
+		"| `app 1.0.0 -> 2.0.0` | `values_prod.yaml` | 1 breaking, 1 to check, 0 unverified |\n",
 		"### helm bumpcheck: `app 1.0.0 -> 2.0.0 (app 1.0 -> 2.0) [values_prod.yaml]`",
 		"<details><summary>Skipped</summary>",
 	} {

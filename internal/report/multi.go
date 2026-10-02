@@ -70,7 +70,7 @@ func writeBatchText(w io.Writer, b Batch) error {
 		}
 		fmt.Fprintf(&sb, "\n%s\n", group.name)
 		for _, s := range group.items {
-			fmt.Fprintf(&sb, "  %s: %s\n", Sanitize(s.Path), Sanitize(s.Reason))
+			fmt.Fprintf(&sb, "  %s: %s\n", sanitizeLine(s.Path), strings.ReplaceAll(Sanitize(s.Reason), "\n", "\n    "))
 		}
 	}
 	_, err := io.WriteString(w, sb.String())
@@ -84,7 +84,7 @@ func writeBatchMarkdown(w io.Writer, b Batch) error {
 		sb.WriteString("\n| Chart | Values | Result |\n|---|---|---|\n")
 		for _, r := range b.Reports {
 			v := build(r)
-			fmt.Fprintf(&sb, "| %s %s -&gt; %s | %s | %s |\n", mdCode(r.Chart), r.From, r.To, mdCode(r.Values), strings.TrimPrefix(v.Verdict, "Result: "))
+			fmt.Fprintf(&sb, "| %s | %s | %s |\n", mdCodeCell(v.Bump), mdCodeCell(v.Values), strings.TrimPrefix(v.Verdict, "Result: "))
 		}
 	}
 
@@ -98,13 +98,13 @@ func writeBatchMarkdown(w io.Writer, b Batch) error {
 		if len(b.Failed) > 0 {
 			body.WriteString("\n**Could not be analyzed**\n\n")
 			for _, s := range b.Failed {
-				fmt.Fprintf(&body, "- %s: %s\n", mdCode(s.Path), mdText(s.Reason))
+				fmt.Fprintf(&body, "- %s: %s\n", mdCode(Sanitize(s.Path)), mdText(Sanitize(s.Reason)))
 			}
 		}
 		if len(b.Skipped) > 0 {
 			body.WriteString("\n<details><summary>Skipped</summary>\n\n")
 			for _, s := range b.Skipped {
-				fmt.Fprintf(&body, "- %s: %s\n", mdCode(s.Path), mdText(s.Reason))
+				fmt.Fprintf(&body, "- %s: %s\n", mdCode(Sanitize(s.Path)), mdText(Sanitize(s.Reason)))
 			}
 			body.WriteString("\n</details>\n")
 		}

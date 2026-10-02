@@ -11,15 +11,18 @@ import (
 var update = flag.Bool("update", false, "rewrite golden files in testdata")
 
 func TestGolden(t *testing.T) {
-	writers := map[string]func(*bytes.Buffer, Report) error{
-		"velero.txt":  func(b *bytes.Buffer, r Report) error { return WriteText(b, r) },
-		"velero.md":   func(b *bytes.Buffer, r Report) error { return WriteMarkdown(b, r) },
-		"velero.json": func(b *bytes.Buffer, r Report) error { return WriteJSON(b, r) },
+	writers := map[string]func(*bytes.Buffer) error{
+		"velero.txt":  func(b *bytes.Buffer) error { return WriteText(b, veleroReport()) },
+		"velero.md":   func(b *bytes.Buffer) error { return WriteMarkdown(b, veleroReport()) },
+		"velero.json": func(b *bytes.Buffer) error { return WriteJSON(b, veleroReport()) },
+		"batch.txt":   func(b *bytes.Buffer) error { return WriteBatch(b, "text", batchFixture()) },
+		"batch.md":    func(b *bytes.Buffer) error { return WriteBatch(b, "markdown", batchFixture()) },
+		"batch.json":  func(b *bytes.Buffer) error { return WriteBatch(b, "json", batchFixture()) },
 	}
 	for name, write := range writers {
 		t.Run(name, func(t *testing.T) {
 			var b bytes.Buffer
-			if err := write(&b, veleroReport()); err != nil {
+			if err := write(&b); err != nil {
 				t.Fatal(err)
 			}
 			path := filepath.Join("testdata", name)

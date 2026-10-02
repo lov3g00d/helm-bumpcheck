@@ -31,6 +31,8 @@ type row struct {
 
 type view struct {
 	Title      string
+	Bump       string
+	Values     string
 	Verdict    string
 	Breaking   []row
 	Check      []row
@@ -42,7 +44,7 @@ type view struct {
 func build(res Report) view {
 	r := res.Report
 	idx := evidenceIndex(res.Notes)
-	v := view{Title: title(res)}
+	v := view{Title: title(res), Bump: bump(res), Values: res.Values}
 
 	for _, tc := range r.TypeChanged {
 		row := row{Kind: "type changed", Path: tc.Path, Detail: fmt.Sprintf("%s -> %s, %d %s you set", tc.Old, tc.New, len(tc.Keys), plural(len(tc.Keys), "key", "keys"))}
@@ -82,7 +84,7 @@ func build(res Report) view {
 	v.Verdict = verdict(len(v.Breaking), len(v.Check), len(v.Unverified))
 	v.Why = unverifiedReason(res.Notes)
 	v.Footer = sanitizeAll(footer(res))
-	v.Title = Sanitize(v.Title)
+	v.Title, v.Bump, v.Values = sanitizeLine(v.Title), sanitizeLine(v.Bump), sanitizeLine(v.Values)
 	for _, rows := range [][]row{v.Breaking, v.Check, v.Unverified} {
 		for i := range rows {
 			rows[i].Path = Sanitize(rows[i].Path)
@@ -97,8 +99,12 @@ func build(res Report) view {
 	return v
 }
 
+func bump(res Report) string {
+	return fmt.Sprintf("%s %s -> %s", res.Chart, res.From, res.To)
+}
+
 func title(res Report) string {
-	t := fmt.Sprintf("%s %s -> %s", res.Chart, res.From, res.To)
+	t := bump(res)
 	switch {
 	case res.AppFrom == "" && res.AppTo == "":
 	case res.AppFrom == res.AppTo:

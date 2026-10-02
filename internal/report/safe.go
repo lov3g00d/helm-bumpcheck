@@ -35,6 +35,10 @@ func Sanitize(s string) string {
 	}, s)
 }
 
+func sanitizeLine(s string) string {
+	return strings.ReplaceAll(Sanitize(s), "\n", " ")
+}
+
 func sanitizeAll(lines []string) []string {
 	out := make([]string, len(lines))
 	for i, l := range lines {

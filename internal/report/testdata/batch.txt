@@ -1,0 +1,29 @@
+4 charts bumped between 8387ab7ac96b and 81b35ce08326: 2 reports checked, 1 skipped, 1 failed.
+
+velero 3.2.0 -> 4.0.1 (app 1.10.0) [values_prod.yaml]
+Result: 3 breaking, 0 to check, 1 unverified
+
+BREAKING
+  type changed  configuration.backupStorageLocation  map -> list, 2 keys you set
+                note 0.71  velero-4.0.0 What's Changed: [velero] Add support for multiple backupstoragelocations and volumesnapshotlocations
+  removed       configuration.provider               no longer in the chart
+  render        the new chart rejects your values
+                Error: execution error at (velero/templates/NOTES.txt:78:4):
+                ERROR: Please make .configuration.backupStorageLocation from map to slice
+
+UNVERIFIED  the chart does not declare these keys and no release note matched them
+  free-form     schedules.daily.schedule
+
+Release notes (chart): vmware-tanzu/helm-charts 3.2.0 -> 4.0.1, 2 releases, 4 entries, 8 questions
+Release notes (app): skipped, the version did not change
+2 keys added in 4.0.1. Use -o json to list them.
+
+app 1.0.0 -> 2.0.0 | x @octo-org/admins <img src=https://evil.example/p.png> [l](https://evil.example)  click [values_a|b.yaml]
+Result: nothing in this upgrade affects the values you set
+
+Failed
+  charts/broken: helm template charts/broken: exit status 1: Error: bad @octo-org/admins <img src=x>
+    second line
+
+Skipped
+  charts/lib: no values files match values_*.yaml, values-*.yaml

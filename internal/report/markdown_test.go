@@ -101,3 +101,20 @@ func TestTruncateMarkdownClosesBlocks(t *testing.T) {
 		t.Errorf("truncated output not closed:\n%s", got)
 	}
 }
+
+func TestMarkdownLineBreaksDoNotEscapeInlineSpans(t *testing.T) {
+	if got := mdCode("a\r\nb\nc\rd`e"); got != "`a b c d'e`" {
+		t.Errorf("mdCode = %q", got)
+	}
+	if got := mdText("a\r\nb\rc"); got != "a b c" {
+		t.Errorf("mdText = %q", got)
+	}
+	r := Report{Chart: "c", From: "1", To: "2\n\n@octocat please merge <img src=x>"}
+	var b bytes.Buffer
+	if err := WriteMarkdown(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	if want := "### helm bumpcheck: `c 1 -> 2  @octocat please merge <img src=x>`\n\n**"; !strings.Contains(b.String(), want) {
+		t.Errorf("markdown missing %q:\n%s", want, b.String())
+	}
+}

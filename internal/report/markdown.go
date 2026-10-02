@@ -10,6 +10,8 @@ const maxMarkdownLen = 60000
 
 const Marker = "<!-- helm-bumpcheck -->"
 
+var lineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+
 func WriteMarkdown(w io.Writer, res Report) error {
 	v := build(res)
 	out := markdown(v, true)
@@ -52,7 +54,7 @@ func mdSection(b *strings.Builder, name string, rows []row, details bool) {
 	for _, r := range rows {
 		path := ""
 		if r.Path != "" {
-			path = strings.ReplaceAll(mdCode(r.Path), "|", `\|`)
+			path = mdCodeCell(r.Path)
 		}
 		fmt.Fprintf(b, "| %s | %s | %s |\n", r.Kind, path, mdCell(r.Detail))
 	}
@@ -95,7 +97,11 @@ func mdSection(b *strings.Builder, name string, rows []row, details bool) {
 }
 
 func mdCode(s string) string {
-	return "`" + strings.ReplaceAll(s, "`", "'") + "`"
+	return "`" + strings.ReplaceAll(lineBreaks.Replace(s), "`", "'") + "`"
+}
+
+func mdCodeCell(s string) string {
+	return strings.ReplaceAll(mdCode(s), "|", `\|`)
 }
 
 func mdCell(s string) string {
@@ -103,7 +109,7 @@ func mdCell(s string) string {
 }
 
 func mdText(s string) string {
-	s = strings.ReplaceAll(s, "\n", " ")
+	s = lineBreaks.Replace(s)
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
