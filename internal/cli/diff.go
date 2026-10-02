@@ -35,8 +35,8 @@ func newDiffCmd(o *options) *cobra.Command {
 		Short: "Check every chart whose version changed between two git revisions",
 		Long: `Find charts whose Chart.yaml version changed between the merge base of
 --base and --head, and check each one against every values file in its
-directory. Charts whose dependencies changed without a version bump are
-listed as skipped. Nothing in the repository is modified; both revisions
+directory. Charts whose dependencies or lock files changed without a
+version bump are listed as skipped. Nothing in the repository is modified; both revisions
 are read straight from git objects, so .gitattributes has no effect.`,
 		Example: `  helm bumpcheck diff --base origin/main
   helm bumpcheck diff --base origin/main -o markdown --fail-on removed,type,render

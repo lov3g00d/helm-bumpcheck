@@ -279,6 +279,48 @@ func TestChangedChartsListsDependencyChangesOfABump(t *testing.T) {
 	}
 }
 
+func TestChangedChartsReadsLockFiles(t *testing.T) {
+	lock := func(version string) string {
+		return "dependencies:\n- name: tempo\n  repository: https://grafana.github.io/helm-charts\n  version: " + version + "\ndigest: sha256:0\ngenerated: \"2026-01-01T00:00:00Z\"\n"
+	}
+	ranged := "dependencies:\n  - name: tempo\n    version: ~1.10.0\n    repository: https://grafana.github.io/helm-charts\n"
+	pinned := func(version string) string {
+		return "dependencies:\n  - name: tempo\n    version: " + version + "\n    repository: https://grafana.github.io/helm-charts\n"
+	}
+
+	r := newTestRepo(t)
+	r.write("ranged/Chart.yaml", chartYAML("ranged", "1.0.0")+ranged)
+	r.write("ranged/Chart.lock", lock("1.10.0"))
+	r.write("pinned/Chart.yaml", chartYAML("pinned", "1.0.0")+pinned("1.10.0"))
+	r.write("pinned/Chart.lock", lock("1.10.0"))
+	r.write("v1/Chart.yaml", "apiVersion: v1\nname: v1\nversion: 1.0.0\n")
+	r.write("v1/requirements.yaml", ranged)
+	r.write("v1/requirements.lock", lock("1.10.0"))
+	base := r.commit("base")
+
+	r.write("ranged/Chart.lock", lock("1.10.5"))
+	r.write("pinned/Chart.yaml", chartYAML("pinned", "1.0.0")+pinned("1.10.5"))
+	r.write("pinned/Chart.lock", lock("1.10.5"))
+	r.write("v1/requirements.lock", lock("1.10.5"))
+	head := r.commit("lock maintenance")
+
+	charts, skips, err := Repo{Dir: r.dir}.ChangedCharts(context.Background(), base, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(charts) != 0 {
+		t.Errorf("charts = %+v, want none", charts)
+	}
+	want := []Skip{
+		{Dir: "pinned", Reason: "dependency changes not analyzed: tempo 1.10.0 -> 1.10.5"},
+		{Dir: "ranged", Reason: "dependency changes not analyzed: tempo 1.10.0 -> 1.10.5 locked"},
+		{Dir: "v1", Reason: "dependency changes not analyzed: tempo 1.10.0 -> 1.10.5 locked"},
+	}
+	if !reflect.DeepEqual(skips, want) {
+		t.Errorf("skips = %+v\nwant %+v", skips, want)
+	}
+}
+
 func TestChangedChartsFromSubdirectory(t *testing.T) {
 	r, base, head := setupHistory(t)
 	t.Setenv("GIT_CONFIG_COUNT", "1")

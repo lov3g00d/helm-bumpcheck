@@ -133,7 +133,7 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 	dirs := map[string]bool{}
 	for _, file := range splitNUL(out) {
 		switch path.Base(file) {
-		case "Chart.yaml", "requirements.yaml":
+		case "Chart.yaml", "requirements.yaml", "Chart.lock", "requirements.lock":
 			dirs[path.Dir(file)] = true
 		}
 	}
@@ -164,7 +164,7 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			continue
 		}
 
-		oldMeta, err := r.meta(ctx, baseSHA, dir, baseFiles)
+		before, err := r.chart(ctx, baseSHA, dir, baseFiles)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, nil, err
@@ -172,7 +172,7 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			skips = append(skips, Skip{Dir: dir, Reason: err.Error()})
 			continue
 		}
-		newMeta, err := r.meta(ctx, headSHA, dir, headFiles)
+		after, err := r.chart(ctx, headSHA, dir, headFiles)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, nil, err
@@ -180,7 +180,11 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 			skips = append(skips, Skip{Dir: dir, Reason: err.Error()})
 			continue
 		}
-		changes := dependencyChanges(oldMeta.Dependencies, newMeta.Dependencies)
+		oldMeta, newMeta := before.meta, after.meta
+		changes := slices.Concat(
+			dependencyChanges(oldMeta.Dependencies, newMeta.Dependencies),
+			lockChanges(oldMeta.Dependencies, newMeta.Dependencies, before.lock, after.lock),
+		)
 		if oldMeta.Version == newMeta.Version {
 			if len(changes) > 0 {
 				skips = append(skips, Skip{Dir: dir, Reason: "dependency changes not analyzed: " + strings.Join(changes, "; ")})
@@ -197,22 +201,42 @@ func (r Repo) ChangedCharts(ctx context.Context, base, head string) ([]Chart, []
 	return charts, skips, nil
 }
 
-func (r Repo) meta(ctx context.Context, rev, dir string, files map[string]bool) (helm.Metadata, error) {
+type chartState struct {
+	meta helm.Metadata
+	lock []helm.Dependency
+}
+
+func (r Repo) chart(ctx context.Context, rev, dir string, files map[string]bool) (chartState, error) {
 	chartYAML, err := r.show(ctx, rev, path.Join(dir, "Chart.yaml"))
 	if err != nil {
-		return helm.Metadata{}, err
+		return chartState{}, err
 	}
 	var requirementsYAML []byte
 	if req := path.Join(dir, "requirements.yaml"); files[req] {
 		if requirementsYAML, err = r.show(ctx, rev, req); err != nil {
-			return helm.Metadata{}, err
+			return chartState{}, err
 		}
 	}
 	m, err := helm.ParseMetadata(chartYAML, requirementsYAML)
 	if err != nil {
-		return helm.Metadata{}, fmt.Errorf("%s at %s: %w", dir, rev, err)
+		return chartState{}, fmt.Errorf("%s at %s: %w", dir, rev, err)
 	}
-	return m, nil
+	st := chartState{meta: m}
+	for _, name := range []string{"Chart.lock", "requirements.lock"} {
+		file := path.Join(dir, name)
+		if !files[file] {
+			continue
+		}
+		data, err := r.show(ctx, rev, file)
+		if err != nil {
+			return chartState{}, err
+		}
+		if st.lock, err = helm.ParseLock(data); err != nil {
+			return chartState{}, fmt.Errorf("%s at %s: %w", file, rev, err)
+		}
+		break
+	}
+	return st, nil
 }
 
 func dependencyChanges(oldDeps, newDeps []helm.Dependency) []string {
@@ -252,6 +276,31 @@ func dependencyChanges(oldDeps, newDeps []helm.Dependency) []string {
 				changes = append(changes, fmt.Sprintf("%s repository %s -> %s", label(n), orNone(o.Repository), orNone(n.Repository)))
 			}
 		}
+	}
+	return changes
+}
+
+func lockChanges(oldDeps, newDeps, oldLock, newLock []helm.Dependency) []string {
+	byName := func(deps []helm.Dependency) map[string]helm.Dependency {
+		m := make(map[string]helm.Dependency, len(deps))
+		for _, d := range deps {
+			m[d.Name] = d
+		}
+		return m
+	}
+	oldDecl, newDecl, before, after := byName(oldDeps), byName(newDeps), byName(oldLock), byName(newLock)
+
+	var changes []string
+	for _, name := range slices.Sorted(maps.Keys(after)) {
+		o, ok := before[name]
+		n := after[name]
+		if !ok || o.Version == n.Version {
+			continue
+		}
+		if oldDecl[name].Version == o.Version && newDecl[name].Version == n.Version {
+			continue
+		}
+		changes = append(changes, fmt.Sprintf("%s %s -> %s locked", name, orNone(o.Version), orNone(n.Version)))
 	}
 	return changes
 }

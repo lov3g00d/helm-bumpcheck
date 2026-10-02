@@ -159,6 +159,16 @@ func ParseMetadata(chartYAML, requirementsYAML []byte) (Metadata, error) {
 	return m, nil
 }
 
+func ParseLock(data []byte) ([]Dependency, error) {
+	var lock struct {
+		Dependencies []Dependency `json:"dependencies"`
+	}
+	if err := yaml.Unmarshal(data, &lock); err != nil {
+		return nil, fmt.Errorf("parse lock file: %w", err)
+	}
+	return lock.Dependencies, nil
+}
+
 func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) error {
 	args := c.args("template", "bumpcheck", c.Ref)
 	for _, f := range valueFiles {
