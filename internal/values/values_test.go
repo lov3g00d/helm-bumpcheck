@@ -36,6 +36,9 @@ func TestPath(t *testing.T) {
 		{[]string{"a", "b", "c"}, "a.b.c"},
 		{[]string{"podAnnotations", "prometheus.io/scrape"}, `podAnnotations["prometheus.io/scrape"]`},
 		{[]string{"a", ""}, `a[""]`},
+		{[]string{"x\nBREAKING", "y\tz"}, `["x\nBREAKING"]["y\tz"]`},
+		{[]string{"a", "b\u00a0c"}, `a["b\u00a0c"]`},
+		{[]string{"имя", "ключ"}, "имя.ключ"},
 	}
 	for _, tt := range tests {
 		if got := Path(tt.segments); got != tt.want {

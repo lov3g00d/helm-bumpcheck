@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"sigs.k8s.io/yaml"
 )
@@ -170,7 +171,7 @@ func flatten(segments []string, v any, out Leaves) {
 func Path(segments []string) string {
 	var b strings.Builder
 	for i, s := range segments {
-		if strings.ContainsAny(s, ".[]\" ") || s == "" {
+		if s == "" || strings.ContainsAny(s, ".[]\" ") || strings.ContainsFunc(s, func(r rune) bool { return !unicode.IsPrint(r) }) {
 			b.WriteString("[" + strconv.Quote(s) + "]")
 			continue
 		}

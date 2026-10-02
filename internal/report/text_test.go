@@ -60,6 +60,22 @@ func TestTextStripsTerminalEscapes(t *testing.T) {
 	}
 }
 
+func TestTextQuotesKeysWithLineBreaks(t *testing.T) {
+	key := "x\n\nBREAKING\n\tremoved\tforged\tno-longer-in-the-chart"
+	r := Report{Chart: "app", From: "1.0.0", To: "2.0.0", Report: values.Compare(map[string]any{}, map[string]any{}, map[string]any{key: 1}, values.Dependencies{})}
+	var b strings.Builder
+	if err := WriteText(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if strings.Contains(out, "\nBREAKING\n") || strings.Contains(out, "\tremoved") {
+		t.Errorf("a values key forged report lines:\n%s", out)
+	}
+	if want := `["x\n\nBREAKING\n\tremoved\tforged\tno-longer-in-the-chart"]`; !strings.Contains(out, want) {
+		t.Errorf("output missing the quoted key %s:\n%s", want, out)
+	}
+}
+
 func TestColorEnabledHonoursNoColor(t *testing.T) {
 	tty, err := os.Open(os.DevNull)
 	if err != nil {
