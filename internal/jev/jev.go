@@ -34,20 +34,8 @@ type Question struct {
 	Criteria     any    `json:"criteria,omitempty"`
 }
 
-func Noul(instructions any) Question {
-	return Question{Type: "noul", Instructions: instructions}
-}
-
 func NoulWithCriteria(instructions any, yes, no string) Question {
 	return Question{Type: "noul", Instructions: instructions, Criteria: map[string]string{"true": yes, "false": no}}
-}
-
-func Choice(instructions any, options map[string]any) Question {
-	return Question{Type: "choice", Instructions: instructions, Criteria: options}
-}
-
-func Score(instructions any, levels []string) Question {
-	return Question{Type: "score", Instructions: instructions, Criteria: levels}
 }
 
 type Request struct {
@@ -57,13 +45,8 @@ type Request struct {
 }
 
 type Answer struct {
-	Type          string             `json:"type"`
-	Noul          float64            `json:"noul"`
-	Choice        string             `json:"choice"`
-	Score         float64            `json:"score"`
-	Probabilities map[string]float64 `json:"probabilities"`
-	Legend        map[string]string  `json:"legend"`
-	Confidence    float64            `json:"confidence"`
+	Type string  `json:"type"`
+	Noul float64 `json:"noul"`
 }
 
 type Usage struct {

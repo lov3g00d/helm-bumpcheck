@@ -81,16 +81,13 @@ func TestEvaluateSendsRequest(t *testing.T) {
 	defer srv.Close()
 
 	resp, err := testClient(srv.URL).Evaluate(context.Background(), "payouts failing for 3 days", map[string]Question{
-		"is_urgent": Noul("Does this convey urgency?"),
+		"is_urgent": NoulWithCriteria("Does this convey urgency?", "yes", "no"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := resp.Answers["is_urgent"].Noul; got != 0.95 {
 		t.Errorf("noul = %v, want 0.95", got)
-	}
-	if got := resp.Answers["department"]; got.Choice != "billing" || got.Probabilities["technical"] != 0.12 {
-		t.Errorf("choice answer = %+v", got)
 	}
 	if resp.Usage.InputTokens != 296 {
 		t.Errorf("usage = %+v", resp.Usage)
@@ -99,7 +96,7 @@ func TestEvaluateSendsRequest(t *testing.T) {
 
 func TestRetriesRateLimitAndOverload(t *testing.T) {
 	srv, calls := statusSequence(t, http.StatusTooManyRequests, 529, http.StatusOK)
-	resp, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")})
+	resp, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +110,7 @@ func TestRetriesRateLimitAndOverload(t *testing.T) {
 
 func TestGivesUpAfterMaxRetries(t *testing.T) {
 	srv, calls := statusSequence(t, 529)
-	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")})
+	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")})
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != 529 {
 		t.Fatalf("err = %v, want APIError 529", err)
@@ -125,7 +122,7 @@ func TestGivesUpAfterMaxRetries(t *testing.T) {
 
 func TestDoesNotRetryValidationError(t *testing.T) {
 	srv, calls := statusSequence(t, http.StatusUnprocessableEntity)
-	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")})
+	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")})
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("err = %v, want APIError 422", err)
@@ -146,7 +143,7 @@ func TestContextStopsBackoff(t *testing.T) {
 	time.AfterFunc(50*time.Millisecond, cancel)
 
 	start := time.Now()
-	_, err := c.Evaluate(ctx, "x", map[string]Question{"q": Noul("q?")})
+	_, err := c.Evaluate(ctx, "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
@@ -163,7 +160,7 @@ func TestSkipsBackoffPastDeadline(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err := c.Evaluate(ctx, "x", map[string]Question{"q": Noul("q?")})
+	_, err := c.Evaluate(ctx, "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")})
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("err = %v, want the 429 rather than a deadline error", err)
@@ -179,13 +176,9 @@ func TestQuestionJSON(t *testing.T) {
 		q    Question
 		want string
 	}{
-		{"noul", Noul("Is it urgent?"), `{"type":"noul","instructions":"Is it urgent?"}`},
+		{"noul", Question{Type: "noul", Instructions: "Is it urgent?"}, `{"type":"noul","instructions":"Is it urgent?"}`},
 		{"noul with criteria", NoulWithCriteria("Is it urgent?", "time-sensitive", "no urgency"),
 			`{"type":"noul","instructions":"Is it urgent?","criteria":{"false":"no urgency","true":"time-sensitive"}}`},
-		{"choice", Choice("Which team?", map[string]any{"billing": "payments", "sales": nil}),
-			`{"type":"choice","instructions":"Which team?","criteria":{"billing":"payments","sales":null}}`},
-		{"score", Score("How angry?", []string{"calm", "angry"}),
-			`{"type":"score","instructions":"How angry?","criteria":["calm","angry"]}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -216,7 +209,7 @@ func TestLiveEvaluate(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp, err := c.Evaluate(context.Background(), "Removed metrics-generator localblocks processor and related local block storage plumbing", map[string]Question{
-		"concerns_key": Noul("Does this release-note entry concern the config key `processor.local_blocks.flush_to_storage`?"),
+		"concerns_key": NoulWithCriteria("Does this release-note entry concern the config key `processor.local_blocks.flush_to_storage`?", "yes", "no"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +219,7 @@ func TestLiveEvaluate(t *testing.T) {
 
 func TestRetriesServerErrorsAndTimeouts(t *testing.T) {
 	srv, calls := statusSequence(t, http.StatusBadGateway, http.StatusRequestTimeout, http.StatusOK)
-	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")}); err != nil {
 		t.Fatal(err)
 	}
 	if got := calls.Load(); got != 3 {
@@ -248,7 +241,7 @@ func TestRetriesDroppedConnection(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")}); err != nil {
 		t.Fatalf("err = %v, want success after a dropped connection", err)
 	}
 	if got := calls.Load(); got != 2 {
@@ -269,7 +262,7 @@ func TestHonoursRetryAfter(t *testing.T) {
 	defer srv.Close()
 
 	start := time.Now()
-	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+	if _, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")}); err != nil {
 		t.Fatal(err)
 	}
 	if elapsed := time.Since(start); elapsed < 150*time.Millisecond {
@@ -298,7 +291,7 @@ func TestDoesNotRetryMalformedResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")})
+	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")})
 	if err == nil || !strings.Contains(err.Error(), "decode response") {
 		t.Errorf("err = %v, want a decode error", err)
 	}
@@ -314,7 +307,7 @@ func TestCapsErrorBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")})
+	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")})
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || len(apiErr.Body) != maxErrorBody {
 		t.Errorf("err = %T, body of %d bytes, want an APIError with %d", err, len(apiErr.Body), maxErrorBody)
@@ -331,7 +324,7 @@ func TestTimeoutCoversAllAttempts(t *testing.T) {
 	c := testClient(srv.URL)
 	c.MaxRetries, c.Timeout = 50, 100*time.Millisecond
 	start := time.Now()
-	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err == nil {
+	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")}); err == nil {
 		t.Fatal("expected an error")
 	}
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
@@ -349,7 +342,7 @@ func TestSendsUserAgent(t *testing.T) {
 
 	c := testClient(srv.URL)
 	c.UserAgent = "helm-bumpcheck/1.2.3"
-	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")}); err != nil {
 		t.Fatal(err)
 	}
 	if ua != "helm-bumpcheck/1.2.3" {
@@ -377,7 +370,7 @@ func TestReusesConnectionAfterError(t *testing.T) {
 
 	c := testClient(srv.URL)
 	c.HTTP = srv.Client()
-	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": NoulWithCriteria("q?", "yes", "no")}); err != nil {
 		t.Fatal(err)
 	}
 	if got := conns.Load(); got != 1 {
