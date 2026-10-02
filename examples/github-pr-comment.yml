@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '**/Chart.yaml'
+      - '**/requirements.yaml'
 
 permissions:
   contents: read
