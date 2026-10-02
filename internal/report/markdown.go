@@ -13,6 +13,7 @@ const Marker = "<!-- helm-bumpcheck -->"
 
 var (
 	lineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+	mdEscape   = strings.NewReplacer(`\`, `\\`, "&", "&amp;", "<", "&lt;", ">", "&gt;", "[", `\[`, "]", `\]`)
 	issueRef   = regexp.MustCompile(`(^|[^\w./-])([\w.-]+/[\w.-]+)#(\d+)\b`)
 )
 
@@ -117,11 +118,5 @@ func mdCell(s string) string {
 }
 
 func mdText(s string) string {
-	s = lineBreaks.Replace(s)
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "[", `\[`)
-	s = strings.ReplaceAll(s, "]", `\]`)
-	return neutralizeMentions(s)
+	return neutralizeMentions(mdEscape.Replace(lineBreaks.Replace(s)))
 }

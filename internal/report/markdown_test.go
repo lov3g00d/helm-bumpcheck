@@ -170,3 +170,13 @@ func TestMdTextBreaksMentions(t *testing.T) {
 		t.Errorf("mdText = %q, want %q", got, want)
 	}
 }
+
+func TestMdTextEscapesBackslashes(t *testing.T) {
+	got := mdText(`\[x\](//e.example) a\b`)
+	if want := `\\\[x\\\](//e.example) a\\b`; got != want {
+		t.Errorf("mdText = %q, want %q", got, want)
+	}
+	if got := mdText(cleanEntry(`Fix \[docs\](//evil.example)`, "a/b")); got != `Fix \\\[docs\\\](//evil.example)` {
+		t.Errorf("mdText(cleanEntry) = %q", got)
+	}
+}
