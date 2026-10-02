@@ -1,6 +1,9 @@
 package helm
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"os"
@@ -296,15 +299,43 @@ func TestParseMetadataCoercesLikeHelm(t *testing.T) {
 	}
 }
 
+func writeChartArchive(t *testing.T, file, name string) {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	body := []byte("apiVersion: v2\nname: " + name + "\nversion: 1.0.0\n")
+	for _, h := range []*tar.Header{
+		{Name: name + "/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: name + "/Chart.yaml", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body))},
+	} {
+		if err := tw.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+		if h.Typeflag == tar.TypeReg {
+			if _, err := tw.Write(body); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMissingDependencies(t *testing.T) {
 	dir := t.TempDir()
 	for name, content := range map[string]string{
-		"charts/minio/Chart.yaml":       "name: minio\nversion: 1.0.0\n",
-		"charts/renamed/Chart.yaml":     "name: redis\nversion: 1.0.0\n",
-		"charts/postgresql-12.1.0.tgz":  "",
-		"charts/memcached-cluster.tgz":  "",
-		"charts/notachart/values.yaml":  "",
-		"charts/valkey-cluster-1.0.tgz": "",
+		"charts/minio/Chart.yaml":      "name: minio\nversion: 1.0.0\n",
+		"charts/renamed/Chart.yaml":    "name: redis\nversion: 1.0.0\n",
+		"charts/notachart/values.yaml": "",
+		"charts/broken-1.0.0.tgz":      "not gzip",
 	} {
 		full := filepath.Join(dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -314,11 +345,21 @@ func TestMissingDependencies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for file, name := range map[string]string{
+		"postgresql-12.1.0.tgz":    "postgresql",
+		"cert-manager-v1.14.4.tgz": "cert-manager",
+		"memcached-cluster.tgz":    "memcached-cluster",
+		"valkey-cluster-1.0.tgz":   "valkey-cluster",
+		"foo-2-something-else.tgz": "other",
+	} {
+		writeChartArchive(t, filepath.Join(dir, "charts", file), name)
+	}
+
 	meta := Metadata{Dependencies: []Dependency{
-		{Name: "minio"}, {Name: "redis", Alias: "cache"}, {Name: "postgresql"},
-		{Name: "memcached"}, {Name: "notachart"}, {Name: "valkey"}, {Name: "tempo"},
+		{Name: "minio"}, {Name: "redis", Alias: "cache"}, {Name: "postgresql"}, {Name: "cert-manager"},
+		{Name: "memcached"}, {Name: "notachart"}, {Name: "valkey"}, {Name: "foo"}, {Name: "broken"},
 	}}
-	if got, want := MissingDependencies(dir, meta), []string{"memcached", "notachart", "valkey", "tempo"}; !slices.Equal(got, want) {
+	if got, want := MissingDependencies(dir, meta), []string{"memcached", "notachart", "valkey", "foo", "broken"}; !slices.Equal(got, want) {
 		t.Errorf("MissingDependencies = %q, want %q", got, want)
 	}
 	if got := MissingDependencies(t.TempDir(), Metadata{}); got != nil {
@@ -329,7 +370,7 @@ func TestMissingDependencies(t *testing.T) {
 func TestBuildDependencies(t *testing.T) {
 	work := t.TempDir()
 	r := Runner{Bin: fakeHelm(t, `echo "$@" > `+filepath.Join(work, "args"))}
-	if err := r.BuildDependencies(context.Background(), "/charts/umb"); err != nil {
+	if err := r.BuildDependencies(context.Background(), "/charts/umb", nil); err != nil {
 		t.Fatal(err)
 	}
 	if args, _ := os.ReadFile(filepath.Join(work, "args")); string(args) != "dependency build /charts/umb\n" {
@@ -337,6 +378,48 @@ func TestBuildDependencies(t *testing.T) {
 	}
 }
 
+func TestBuildDependenciesAddsReposToATemporaryConfig(t *testing.T) {
+	work := t.TempDir()
+	user := filepath.Join(work, "user-repositories.yaml")
+	if err := os.WriteFile(user, []byte("repositories:\n- name: private\n  url: https://charts.example.com\n  password: s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HELM_REPOSITORY_CONFIG", user)
+	log := filepath.Join(work, "log")
+	script := `echo "$HELM_REPOSITORY_CONFIG $*" >> ` + log + `
+case "$1 $2" in
+  "dependency build")
+    if grep -q bumpcheck-0 "$HELM_REPOSITORY_CONFIG" 2>/dev/null; then exit 0; fi
+    echo "Error: no repository definition for https://grafana.github.io/helm-charts. Please add the missing repos via 'helm repo add'" >&2
+    exit 1 ;;
+  "repo add") echo "- name: $3" >> "$HELM_REPOSITORY_CONFIG" ;;
+esac`
+	r := Runner{Bin: fakeHelm(t, script)}
+	deps := []Dependency{
+		{Name: "tempo", Repository: "https://grafana.github.io/helm-charts"},
+		{Name: "loki", Repository: "https://grafana.github.io/helm-charts"},
+		{Name: "local", Repository: "file://../local"},
+		{Name: "oci", Repository: "oci://ghcr.io/x"},
+	}
+	if err := r.BuildDependencies(context.Background(), "/charts/umb", deps); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(log)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("helm calls = %q, want build, one repo add, build", lines)
+	}
+	if !strings.HasPrefix(lines[0], user+" dependency build") {
+		t.Errorf("first build did not use the user's config: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "repo add bumpcheck-0 https://grafana.github.io/helm-charts --force-update") || strings.HasPrefix(lines[1], user) {
+		t.Errorf("repo add = %q, want it against a temporary config", lines[1])
+	}
+	if got, _ := os.ReadFile(user); strings.Contains(string(got), "bumpcheck") {
+		t.Errorf("the user's repositories.yaml was modified:\n%s", got)
+	}
+}
 func TestLoadDirRejectsBadRequirements(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "Chart.yaml"), []byte("apiVersion: v1\nname: app\nversion: 1.0.0\n"), 0o644); err != nil {

@@ -1,6 +1,8 @@
 package report
 
 import (
+	"encoding/json"
+
 	"github.com/lov3g00d/helm-bumpcheck/internal/match"
 	"github.com/lov3g00d/helm-bumpcheck/internal/values"
 )
@@ -13,12 +15,30 @@ type Report struct {
 	AppTo        string   `json:"appTo,omitempty"`
 	Path         string   `json:"path,omitempty"`
 	Values       string   `json:"values,omitempty"`
-	Dependencies []string `json:"dependencies,omitempty"`
+	Dependencies []string `json:"dependencies"`
 
-	DependencyChanges []string `json:"dependencyChanges,omitempty"`
+	DependencyChanges []string `json:"dependencyChanges"`
 	values.Report
 	Render *Render  `json:"render,omitempty"`
-	Notes  []*Notes `json:"notes,omitempty"`
+	Notes  []*Notes `json:"notes"`
+}
+
+func (r Report) MarshalJSON() ([]byte, error) {
+	type plain Report
+	p := plain(r)
+	p.Dependencies = orEmpty(p.Dependencies)
+	p.DependencyChanges = orEmpty(p.DependencyChanges)
+	if p.Notes == nil {
+		p.Notes = []*Notes{}
+	}
+	return json.Marshal(p)
+}
+
+func orEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 type Skip struct {

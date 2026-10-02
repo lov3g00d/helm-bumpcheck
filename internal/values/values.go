@@ -2,6 +2,7 @@ package values
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -37,7 +38,15 @@ type MeaningChange struct {
 	Path     string   `json:"path"`
 	Old      any      `json:"old,omitempty"`
 	New      any      `json:"new,omitempty"`
-	Siblings []string `json:"siblings,omitempty"`
+	Siblings []string `json:"siblings"`
+}
+
+func (m MeaningChange) MarshalJSON() ([]byte, error) {
+	type plain MeaningChange
+	if m.Siblings == nil {
+		m.Siblings = []string{}
+	}
+	return json.Marshal(plain(m))
 }
 
 type Dependencies struct {

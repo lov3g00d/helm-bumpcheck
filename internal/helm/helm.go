@@ -1,7 +1,9 @@
 package helm
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +23,7 @@ import (
 )
 
 const (
+	maxChartYAML   = 1 << 20
 	maxRenderLines = 12
 	waitDelay      = 5 * time.Second
 )
@@ -199,13 +202,93 @@ func vendors(dir string, e fs.DirEntry, name string) bool {
 		m, err := ParseMetadata(data, nil)
 		return err == nil && m.Name == name
 	}
-	version, ok := strings.CutPrefix(strings.TrimSuffix(e.Name(), ".tgz"), name+"-")
-	return ok && strings.HasSuffix(e.Name(), ".tgz") && version != "" && version[0] >= '0' && version[0] <= '9'
+	if !strings.HasSuffix(e.Name(), ".tgz") {
+		return false
+	}
+	got, ok := archiveChartName(filepath.Join(dir, "charts", e.Name()))
+	return ok && got == name
 }
 
-func (r Runner) BuildDependencies(ctx context.Context, dir string) error {
+func archiveChartName(file string) (string, bool) {
+	f, err := os.Open(file)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return "", false
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			return "", false
+		}
+		parts := strings.Split(strings.TrimPrefix(hdr.Name, "./"), "/")
+		if len(parts) != 2 || parts[1] != "Chart.yaml" {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, maxChartYAML))
+		if err != nil {
+			return "", false
+		}
+		m, err := ParseMetadata(data, nil)
+		return m.Name, err == nil
+	}
+}
+
+func (r Runner) BuildDependencies(ctx context.Context, dir string, deps []Dependency) error {
 	_, err := r.run(ctx, Chart{}, "dependency", "build", dir)
+	if err == nil || !strings.Contains(err.Error(), "no repository definition") {
+		return err
+	}
+
+	home, err2 := os.MkdirTemp("", "bumpcheck-repos-")
+	if err2 != nil {
+		return err
+	}
+	defer os.RemoveAll(home)
+	config := filepath.Join(home, "repositories.yaml")
+	if src := r.repositoryConfig(ctx); src != "" {
+		if data, err := os.ReadFile(src); err == nil {
+			if err := os.WriteFile(config, data, 0o600); err != nil {
+				return err
+			}
+		}
+	}
+
+	env := []string{"HELM_REPOSITORY_CONFIG=" + config, "HELM_REPOSITORY_CACHE=" + filepath.Join(home, "cache")}
+	for i, url := range dependencyRepos(deps) {
+		if _, err := r.runEnv(ctx, env, "repo", "add", fmt.Sprintf("bumpcheck-%d", i), url, "--force-update"); err != nil {
+			return err
+		}
+	}
+	_, err = r.runEnv(ctx, env, "dependency", "build", dir)
 	return err
+}
+
+func dependencyRepos(deps []Dependency) []string {
+	var urls []string
+	for _, d := range deps {
+		u := d.Repository
+		if (strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://")) && !slices.Contains(urls, u) {
+			urls = append(urls, u)
+		}
+	}
+	return urls
+}
+
+func (r Runner) repositoryConfig(ctx context.Context) string {
+	if v := os.Getenv("HELM_REPOSITORY_CONFIG"); v != "" {
+		return v
+	}
+	out, err := r.run(ctx, Chart{}, "env", "HELM_REPOSITORY_CONFIG")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func (r Runner) Template(ctx context.Context, c Chart, valueFiles []string) error {
@@ -286,7 +369,18 @@ func (r Runner) command(ctx context.Context, args ...string) *exec.Cmd {
 }
 
 func (r Runner) run(ctx context.Context, c Chart, args ...string) ([]byte, error) {
+	return r.runWith(ctx, c, nil, args...)
+}
+
+func (r Runner) runEnv(ctx context.Context, env []string, args ...string) ([]byte, error) {
+	return r.runWith(ctx, Chart{}, env, args...)
+}
+
+func (r Runner) runWith(ctx context.Context, c Chart, env []string, args ...string) ([]byte, error) {
 	cmd := r.command(ctx, args...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 

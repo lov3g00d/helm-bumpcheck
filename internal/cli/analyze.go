@@ -119,7 +119,7 @@ func buildDependencies(ctx context.Context, h helm.Runner, c helm.Loaded) string
 	if len(missing) == 0 {
 		return ""
 	}
-	if err := h.BuildDependencies(ctx, c.Dir); err != nil {
+	if err := h.BuildDependencies(ctx, c.Dir, c.Meta.Dependencies); err != nil {
 		return fmt.Sprintf("the dependencies of %s %s (%s) could not be fetched: %v", c.Meta.Name, c.Meta.Version, strings.Join(missing, ", "), err)
 	}
 	return ""

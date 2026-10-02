@@ -4,6 +4,8 @@
   "to": "4.0.1",
   "appFrom": "1.10.0",
   "appTo": "1.10.0",
+  "dependencies": [],
+  "dependencyChanges": [],
   "removed": [
     "configuration.provider"
   ],
