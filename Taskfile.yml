@@ -28,10 +28,14 @@ tasks:
       - go test -race ./...
 
   lint:
-    desc: Check formatting and run go vet
+    desc: Run the static checks CI runs
     cmds:
       - test -z "$(gofmt -l .)"
       - go vet ./...
+      - go fix -diff ./...
+      - go mod tidy -diff
+      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      - shellcheck scripts/*.sh plugin.complete
 
   install:
     desc: Install as a Helm plugin from this directory

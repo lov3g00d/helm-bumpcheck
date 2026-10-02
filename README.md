@@ -124,7 +124,7 @@ Release-note matches never fail a run; their probabilities vary slightly between
 
 ```
 task test        # unit tests with -race
-task lint        # gofmt and go vet
+task lint        # gofmt, go vet, go fix, go mod tidy, govulncheck and shellcheck
 task install     # build and install as a local helm plugin
 task test:live   # tests against the real GitHub and TypeSafe APIs
 task eval        # compare Jev with keyword matching on eval/cases.yaml
