@@ -20,26 +20,61 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
+      - name: shellcheck
+        run: shellcheck scripts/*.sh plugin.complete
 
-  plugin:
+  snapshot:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        helm: [v3.19.1, v4.3.0]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: version from plugin.yaml
+        run: echo "GORELEASER_CURRENT_TAG=v$(sed -n 's/^version:[[:space:]]*//p' plugin.yaml)" >> "$GITHUB_ENV"
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: '~> v2'
+          args: check
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: '~> v2'
+          args: release --snapshot --clean
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          if-no-files-found: error
+
+  plugin:
+    needs: snapshot
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        helm: [v3.22.0, v4.3.0]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: ${{ matrix.helm }}
-      - name: build
-        run: go build -ldflags "-X main.version=$(sed -n 's/^version:[[:space:]]*//p' plugin.yaml)" -o bin/helm-bumpcheck .
-      - name: install and run as a plugin
+      - name: version from plugin.yaml
+        id: plugin
+        run: echo "version=$(sed -n 's/^version:[[:space:]]*//p' plugin.yaml)" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: ${{ runner.temp }}/mirror/v${{ steps.plugin.outputs.version }}
+      - name: install from the snapshot release and run as a plugin
+        env:
+          VERSION: ${{ steps.plugin.outputs.version }}
         run: |
-          HELM_PLUGINS="$(mktemp -d)"
-          export HELM_PLUGINS
-          helm plugin install .
-          helm bumpcheck --version
+          HELM_DATA_HOME="$(mktemp -d)"
+          export HELM_DATA_HOME
+          HELM_BUMPCHECK_RELEASE_URL="file://$RUNNER_TEMP/mirror" helm plugin install .
+          test "$(helm bumpcheck --version)" = "helm-bumpcheck version $VERSION"
+          test "$(helm __complete bumpcheck -o '' 2>/dev/null)" = "$(printf 'json\nmarkdown\ntext\n:4')"
           helm bumpcheck --help
