@@ -1,0 +1,46 @@
+name: helm-bumpcheck
+
+on:
+  pull_request:
+    paths:
+      - '**/Chart.yaml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bumpcheck:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.19.1
+      - name: install helm-bumpcheck
+        run: helm plugin install https://github.com/lov3g00d/helm-bumpcheck --version v0.1.0
+      - name: check chart bumps
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          set +e
+          helm bumpcheck diff --base "origin/${{ github.base_ref }}" --notes \
+            -o markdown --fail-on removed,type,render > bumpcheck.md
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          cat bumpcheck.md >> "$GITHUB_STEP_SUMMARY"
+      - name: comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file bumpcheck.md --edit-last \
+            || gh pr comment "${{ github.event.pull_request.number }}" --body-file bumpcheck.md
+      - name: fail on breaking findings
+        if: steps.check.outputs.exit != '0'
+        env:
+          CODE: ${{ steps.check.outputs.exit }}
+        run: exit "$CODE"

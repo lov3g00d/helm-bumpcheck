@@ -2,6 +2,8 @@ version: '3'
 
 vars:
   BINARY: bin/helm-bumpcheck
+  VERSION:
+    sh: sed -n 's/^version:[[:space:]]*//p' plugin.yaml
 
 tasks:
   default:
@@ -14,10 +16,11 @@ tasks:
       - '**/*.go'
       - go.mod
       - go.sum
+      - plugin.yaml
     generates:
       - '{{.BINARY}}'
     cmds:
-      - go build -o {{.BINARY}} .
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BINARY}} .
 
   test:
     desc: Run unit tests with the race detector

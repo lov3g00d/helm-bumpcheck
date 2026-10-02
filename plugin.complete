@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "$HELM_PLUGIN_DIR/bin/helm-bumpcheck" __complete "$@"

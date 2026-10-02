@@ -31,8 +31,15 @@ type diffOptions struct {
 func newDiffCmd(o *options) *cobra.Command {
 	var d diffOptions
 	cmd := &cobra.Command{
-		Use:           "diff [--base REF] [--head REF]",
-		Short:         "Check every chart whose version changed between two git revisions",
+		Use:   "diff [--base REF] [--head REF]",
+		Short: "Check every chart whose version changed between two git revisions",
+		Long: `Find charts whose Chart.yaml version changed between the merge base of
+--base and --head, and check each one against every values file in its
+directory. Nothing in the repository is modified; both revisions are
+read with git archive.`,
+		Example: `  helm bumpcheck diff --base origin/main
+  helm bumpcheck diff --base origin/main -o markdown --fail-on removed,type,render
+  helm bumpcheck diff -C ../deployments --base main --head my-branch --notes`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,

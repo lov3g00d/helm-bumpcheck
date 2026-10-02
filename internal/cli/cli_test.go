@@ -58,7 +58,7 @@ func setup(t *testing.T) string {
 
 func execute(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	cmd := NewRootCmd()
+	cmd := NewRootCmd("test")
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)

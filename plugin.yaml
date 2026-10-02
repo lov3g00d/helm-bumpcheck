@@ -5,3 +5,8 @@ description: Diff chart defaults across a version bump against your values files
 ignoreFlags: false
 platformCommand:
   - command: ${HELM_PLUGIN_DIR}/bin/helm-bumpcheck
+platformHooks:
+  install:
+    - command: ${HELM_PLUGIN_DIR}/scripts/install-binary.sh
+  update:
+    - command: ${HELM_PLUGIN_DIR}/scripts/install-binary.sh

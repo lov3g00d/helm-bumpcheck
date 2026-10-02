@@ -1,0 +1,28 @@
+version: 2
+
+project_name: helm-bumpcheck
+
+builds:
+  - id: helm-bumpcheck
+    binary: helm-bumpcheck
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: lov3g00d
+    name: helm-bumpcheck
+
+changelog:
+  sort: asc
