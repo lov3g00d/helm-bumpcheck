@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ const (
 
 	maxResponseSize = 10 << 20
 	maxRetryAfter   = 30 * time.Second
+	maxErrorBody    = 1 << 10
 )
 
 type Question struct {
@@ -97,6 +99,8 @@ type Client struct {
 	MaxRetries int
 	Backoff    time.Duration
 	MaxBackoff time.Duration
+	Timeout    time.Duration
+	UserAgent  string
 }
 
 func NewFromEnv() (*Client, error) {
@@ -108,6 +112,9 @@ func NewFromEnv() (*Client, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
+	if u, err := url.Parse(baseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("%s must be an http or https URL, got %q", BaseURLEnv, baseURL)
+	}
 	model := os.Getenv(ModelEnv)
 	if model == "" {
 		model = DefaultModel
@@ -116,10 +123,12 @@ func NewFromEnv() (*Client, error) {
 		BaseURL:    baseURL,
 		APIKey:     key,
 		Model:      model,
-		HTTP:       &http.Client{Timeout: 30 * time.Second},
+		HTTP:       &http.Client{},
 		MaxRetries: 2,
 		Backoff:    500 * time.Millisecond,
 		MaxBackoff: 5 * time.Second,
+		Timeout:    30 * time.Second,
+		UserAgent:  "helm-bumpcheck",
 	}, nil
 }
 
@@ -129,25 +138,36 @@ func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Q
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
 
+	if c.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.Timeout)
+		defer cancel()
+	}
+
 	for attempt := 0; ; attempt++ {
 		resp, err := c.post(ctx, body)
-		if err == nil || ctx.Err() != nil || attempt >= c.MaxRetries {
+		if err == nil || ctx.Err() != nil || attempt >= c.MaxRetries || !retryable(err) {
 			return resp, err
 		}
 		wait := httpretry.Backoff(c.Backoff, c.MaxBackoff, attempt)
-		var apiErr *APIError
-		if errors.As(err, &apiErr) {
-			if !apiErr.Retryable() {
-				return nil, err
-			}
-			if apiErr.RetryAfter > 0 {
-				wait = min(apiErr.RetryAfter, maxRetryAfter)
-			}
+		if apiErr, ok := errors.AsType[*APIError](err); ok && apiErr.RetryAfter > 0 {
+			wait = min(apiErr.RetryAfter, maxRetryAfter)
+		}
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < wait {
+			return nil, err
 		}
 		if err := httpretry.Sleep(ctx, wait); err != nil {
 			return nil, err
 		}
 	}
+}
+
+func retryable(err error) bool {
+	if apiErr, ok := errors.AsType[*APIError](err); ok {
+		return apiErr.Retryable()
+	}
+	_, ok := errors.AsType[*url.Error](err)
+	return ok
 }
 
 func (c *Client) post(ctx context.Context, body []byte) (*Response, error) {
@@ -157,21 +177,28 @@ func (c *Client) post(ctx context.Context, body []byte) (*Response, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("Content-Type", "application/json")
+	if c.UserAgent != "" {
+		req.Header.Set("User-Agent", c.UserAgent)
+	}
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseSize))
+		resp.Body.Close()
+	}()
 
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+		apiErr := &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(msg))}
+		apiErr.RetryAfter, _ = httpretry.After(resp.Header, time.Now())
+		return nil, apiErr
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		apiErr := &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(data))}
-		apiErr.RetryAfter, _ = httpretry.After(resp.Header, time.Now())
-		return nil, apiErr
 	}
 
 	var out Response

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -140,16 +142,34 @@ func TestContextStopsBackoff(t *testing.T) {
 	srv, _ := statusSequence(t, http.StatusTooManyRequests)
 	c := testClient(srv.URL)
 	c.Backoff = 10 * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	start := time.Now()
+	_, err := c.Evaluate(ctx, "x", map[string]Question{"q": Noul("q?")})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("took %s, backoff ignored the context", elapsed)
+	}
+}
+
+func TestSkipsBackoffPastDeadline(t *testing.T) {
+	srv, calls := statusSequence(t, http.StatusTooManyRequests)
+	c := testClient(srv.URL)
+	c.Backoff = 10 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
 	start := time.Now()
 	_, err := c.Evaluate(ctx, "x", map[string]Question{"q": Noul("q?")})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("err = %v, want context.DeadlineExceeded", err)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("err = %v, want the 429 rather than a deadline error", err)
 	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Errorf("took %s, backoff ignored the context", elapsed)
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond || calls.Load() != 1 {
+		t.Errorf("took %s and %d calls, want one call and no wait", elapsed, calls.Load())
 	}
 }
 
@@ -267,5 +287,114 @@ func TestNewFromEnvPinsModel(t *testing.T) {
 	t.Setenv(ModelEnv, "jev-preview")
 	if c, _ := NewFromEnv(); c.Model != "jev-preview" {
 		t.Errorf("model override = %q", c.Model)
+	}
+}
+
+func TestDoesNotRetryMalformedResponse(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		io.WriteString(w, "{not json")
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")})
+	if err == nil || !strings.Contains(err.Error(), "decode response") {
+		t.Errorf("err = %v, want a decode error", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want 1", got)
+	}
+}
+
+func TestCapsErrorBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, strings.Repeat("x", 64<<10))
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv.URL).Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || len(apiErr.Body) != maxErrorBody {
+		t.Errorf("err = %T, body of %d bytes, want an APIError with %d", err, len(apiErr.Body), maxErrorBody)
+	}
+}
+
+func TestTimeoutCoversAllAttempts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(40 * time.Millisecond)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	c := testClient(srv.URL)
+	c.MaxRetries, c.Timeout = 50, 100*time.Millisecond
+	start := time.Now()
+	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err == nil {
+		t.Fatal("expected an error")
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("took %s, want the call to stop near its 100ms budget", elapsed)
+	}
+}
+
+func TestSendsUserAgent(t *testing.T) {
+	var ua string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua = r.Header.Get("User-Agent")
+		io.WriteString(w, okBody)
+	}))
+	defer srv.Close()
+
+	c := testClient(srv.URL)
+	c.UserAgent = "helm-bumpcheck/1.2.3"
+	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+		t.Fatal(err)
+	}
+	if ua != "helm-bumpcheck/1.2.3" {
+		t.Errorf("User-Agent = %q", ua)
+	}
+}
+
+func TestReusesConnectionAfterError(t *testing.T) {
+	var calls, conns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, strings.Repeat("x", 64<<10))
+			return
+		}
+		io.WriteString(w, okBody)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+
+	c := testClient(srv.URL)
+	c.HTTP = srv.Client()
+	if _, err := c.Evaluate(context.Background(), "x", map[string]Question{"q": Noul("q?")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := conns.Load(); got != 1 {
+		t.Errorf("connections = %d, want 1", got)
+	}
+}
+
+func TestNewFromEnvRejectsBadBaseURL(t *testing.T) {
+	t.Setenv(APIKeyEnv, "k")
+	for _, u := range []string{"ftp://api.typesafe.ai", "api.typesafe.ai", "https://"} {
+		t.Setenv(BaseURLEnv, u)
+		if _, err := NewFromEnv(); err == nil || !strings.Contains(err.Error(), BaseURLEnv) {
+			t.Errorf("%s: err = %v", u, err)
+		}
+	}
+	t.Setenv(BaseURLEnv, "http://localhost:8080")
+	if _, err := NewFromEnv(); err != nil {
+		t.Errorf("http://localhost:8080: %v", err)
 	}
 }
