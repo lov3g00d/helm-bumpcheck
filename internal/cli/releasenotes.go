@@ -124,7 +124,7 @@ func askNotes(ctx context.Context, d *deps, cs *chartStage, f *fetchedNotes, r v
 	if res.Skipped != "" {
 		return res, nil
 	}
-	keys := slices.Concat(r.Removed, typedKeys(r.TypeChanged), r.Freeform, r.Undeclared)
+	keys := r.NoteKeys()
 	if len(keys) == 0 {
 		res.Skipped = "no keys need checking"
 		return res, nil
@@ -149,15 +149,7 @@ func request(chart string, src notesSource, keys []string) match.Request {
 		TagPrefix: src.tagPrefix,
 		From:      src.from,
 		To:        src.to,
+		Chart:     chart,
 		Keys:      keys,
-		Ignore:    []string{path.Base(chart)},
 	}
-}
-
-func typedKeys(tcs []values.TypeChange) []string {
-	var out []string
-	for _, tc := range tcs {
-		out = append(out, tc.Keys...)
-	}
-	return out
 }

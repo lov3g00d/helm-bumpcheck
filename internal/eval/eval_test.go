@@ -178,7 +178,7 @@ func TestRunAndSummarize(t *testing.T) {
 	if err := WriteText(&text, results, s); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Cases: 1 scored, 1 failed", "keyword", "jev@0.50", "1/1/0", "1/0/0", "missing-repo: jev: github releases acme/missing"} {
+	for _, want := range []string{"Cases: 1 scored, 1 failed", "keyword", "jev@0.50", "1/1/0", "1/0/0", "missing-repo: github releases acme/missing"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("text report missing %q:\n%s", want, text.String())
 		}

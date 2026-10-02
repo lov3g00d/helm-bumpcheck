@@ -57,6 +57,18 @@ func TestCandidates(t *testing.T) {
 	}
 }
 
+func TestRequestCandidatesIgnoresChartName(t *testing.T) {
+	entries := []notes.Entry{
+		{Release: "tempo-1.24.0", Section: "Changes", Text: "[tempo] Bump tempo image to 2.9.0"},
+		{Release: "tempo-1.24.0", Section: "Changes", Text: "[tempo] Rename server.httpListenPort"},
+	}
+	req := Request{Repo: "grafana/helm-charts", Chart: "oci://registry.example/charts/tempo", Keys: []string{"tempo.server.httpListenPort"}}
+	want := []Candidate{{Entry: entries[1], Keys: req.Keys}}
+	if got := req.Candidates(entries); !reflect.DeepEqual(got, want) {
+		t.Errorf("Candidates =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
 type fakeEvaluator struct {
 	mu       sync.Mutex
 	inFlight atomic.Int32

@@ -43,6 +43,14 @@ type Report struct {
 	Added          []string     `json:"added"`
 }
 
+func (r Report) NoteKeys() []string {
+	var typed []string
+	for _, tc := range r.TypeChanged {
+		typed = append(typed, tc.Keys...)
+	}
+	return slices.Concat(r.Removed, typed, r.Freeform, r.Undeclared)
+}
+
 func Parse(data []byte) (map[string]any, error) {
 	var raw map[any]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {

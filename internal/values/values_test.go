@@ -451,3 +451,19 @@ func TestCompareClassificationEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestNoteKeys(t *testing.T) {
+	r := Report{
+		Removed:        []string{"legacy.enabled"},
+		TypeChanged:    []TypeChange{{Path: "ports", Keys: []string{"ports.http", "ports.https"}}},
+		Freeform:       []string{"extraConfig.team"},
+		Standard:       []string{"resources.limits.cpu"},
+		Undeclared:     []string{"typo"},
+		DefaultChanged: []Change{{Path: "port"}},
+		Added:          []string{"newThing"},
+	}
+	want := []string{"legacy.enabled", "ports.http", "ports.https", "extraConfig.team", "typo"}
+	if got := r.NoteKeys(); !reflect.DeepEqual(got, want) {
+		t.Errorf("NoteKeys = %v, want %v", got, want)
+	}
+}

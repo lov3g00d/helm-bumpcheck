@@ -58,25 +58,17 @@ func (r Runner) runCase(ctx context.Context, c Case) (CaseResult, error) {
 	res := CaseResult{Case: c}
 	req := match.Request{Repo: c.AppRepo, TagPrefix: c.TagPrefix, From: c.From, To: c.To, Keys: c.Keys}
 
-	var (
-		releases []notes.Release
-		entries  []notes.Entry
-	)
+	releases, entries, _, err := match.Fetch(ctx, r.GitHub, req)
+	if err != nil {
+		return res, err
+	}
 	if r.Jev != nil {
-		out, err := match.CheckReleaseNotes(ctx, r.GitHub, r.Jev, req)
+		matches, stats, err := match.Ask(ctx, r.Jev, req.Candidates(entries), match.DefaultConcurrency)
 		if err != nil {
 			return res, fmt.Errorf("jev: %w", err)
 		}
-		releases, entries = out.Releases, out.Entries
-		predicted := KeysAbove(out.Matches, r.Threshold)
-		res.Jev = &JevCase{Predicted: predicted, Score: ScoreKeys(predicted, c.Affected), Stats: out.Stats, Matches: out.Matches}
-	} else {
-		var err error
-		releases, _, err = r.GitHub.Releases(ctx, c.AppRepo, c.TagPrefix, c.From, c.To)
-		if err != nil {
-			return res, err
-		}
-		entries = notes.SplitAll(releases)
+		predicted := KeysAbove(matches, r.Threshold)
+		res.Jev = &JevCase{Predicted: predicted, Score: ScoreKeys(predicted, c.Affected), Stats: stats, Matches: matches}
 	}
 
 	res.Releases, res.Entries = len(releases), len(entries)

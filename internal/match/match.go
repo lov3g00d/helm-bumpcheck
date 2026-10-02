@@ -242,15 +242,8 @@ type Request struct {
 	TagPrefix string
 	From      string
 	To        string
+	Chart     string
 	Keys      []string
-	Ignore    []string
-}
-
-type Result struct {
-	Releases []notes.Release
-	Entries  []notes.Entry
-	Matches  []Match
-	Stats    Stats
 }
 
 func Fetch(ctx context.Context, gh *notes.GitHub, req Request) ([]notes.Release, []notes.Entry, *notes.Truncation, error) {
@@ -261,20 +254,12 @@ func Fetch(ctx context.Context, gh *notes.GitHub, req Request) ([]notes.Release,
 	return releases, notes.SplitAll(releases), trunc, nil
 }
 
-func CheckReleaseNotes(ctx context.Context, gh *notes.GitHub, ev Evaluator, req Request) (Result, error) {
-	releases, entries, _, err := Fetch(ctx, gh, req)
-	if err != nil {
-		return Result{}, err
-	}
-	matches, stats, err := Ask(ctx, ev, Candidates(entries, req.Keys, req.ignore()), DefaultConcurrency)
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{Releases: releases, Entries: entries, Matches: matches, Stats: stats}, nil
-}
-
 func (r Request) ignore() []string {
-	return append([]string{path.Base(r.Repo)}, r.Ignore...)
+	out := []string{path.Base(r.Repo)}
+	if r.Chart != "" {
+		out = append(out, path.Base(r.Chart))
+	}
+	return out
 }
 
 func (r Request) Candidates(entries []notes.Entry) []Candidate {
